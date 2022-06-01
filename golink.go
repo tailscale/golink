@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -111,6 +113,11 @@ func loadLink(short string) (*DiskLink, error) {
 }
 
 func serveGo(w http.ResponseWriter, r *http.Request) {
+	if r.RequestURI == "/export" {
+		serveExport(w, r)
+		return
+	}
+
 	if r.RequestURI == "/" {
 		switch r.Method {
 		case "GET":
@@ -180,4 +187,35 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprintf(w, "<h1>saved</h1>made <a href='http://go/%s'>http://go/%s</a>", html.EscapeString(short), html.EscapeString(short))
+}
+
+func serveExport(w http.ResponseWriter, r *http.Request) {
+	d, err := os.Open(*linkDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer d.Close()
+
+	names, err := d.Readdirnames(0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sort.Strings(names)
+	var buf bytes.Buffer
+	for _, name := range names {
+		if name == "." || name == ".." {
+			continue
+		}
+		d, err := os.ReadFile(filepath.Join(*linkDir, name))
+		if err != nil {
+			panic(http.ErrAbortHandler)
+		}
+		buf.Reset()
+		if err := json.Compact(&buf, d); err != nil {
+			panic(http.ErrAbortHandler)
+		}
+		fmt.Fprintf(w, "%s\n", buf.Bytes())
+	}
 }

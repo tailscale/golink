@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -161,7 +162,7 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	short := strings.ToLower(strings.TrimPrefix(r.RequestURI, "/"))
+	short, remainder, _ := strings.Cut(strings.ToLower(strings.TrimPrefix(r.RequestURI, "/")), "/")
 
 	dl, err := loadLink(short)
 	if os.IsNotExist(err) {
@@ -176,7 +177,14 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, dl.Long, http.StatusFound)
+	dest, err := url.Parse(dl.Long)
+	if err != nil {
+		log.Printf("error parsing URL %q: %v", dl.Long, err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dest.Path = path.Join(dest.RequestURI(), remainder)
+	http.Redirect(w, r, dest.String(), http.StatusFound)
 }
 
 func devMode() bool { return *dev != "" }

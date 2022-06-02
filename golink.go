@@ -2,11 +2,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"html"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -24,7 +27,11 @@ import (
 var (
 	verbose = flag.Bool("verbose", false, "be verbose")
 	linkDir = flag.String("linkdir", "", "the directory to store one JSON file per go/ shortlink")
+	dev     = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set linkDir if empty and don't use tsnet")
 )
+
+//go:embed link-snapshot.json
+var lastSnapshot []byte
 
 var localClient *tailscale.LocalClient
 
@@ -41,12 +48,28 @@ func main() {
 	flag.Parse()
 
 	if *linkDir == "" {
-		log.Fatalf("--linkdir is required")
+		if devMode() {
+			var err error
+			*linkDir, err = ioutil.TempDir("", "golink_dev_*")
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("Dev mode temp dir: %s", *linkDir)
+		} else {
+			log.Fatalf("--linkdir is required")
+		}
 	}
 	if fi, err := os.Stat(*linkDir); err != nil {
 		log.Fatal(err)
 	} else if !fi.IsDir() {
 		log.Fatalf("--linkdir %q is not a directory", *linkDir)
+	}
+
+	restoreLastSnapshot()
+
+	if *dev != "" {
+		log.Printf("Running in dev mode on %s ...", *dev)
+		log.Fatal(http.ListenAndServe(*dev, http.HandlerFunc(serveGo)))
 	}
 
 	srv := &tsnet.Server{
@@ -148,18 +171,26 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, dl.Long, http.StatusFound)
 }
 
+func devMode() bool { return *dev != "" }
+
 func serveSave(w http.ResponseWriter, r *http.Request) {
 	short, long := r.FormValue("short"), r.FormValue("long")
 	if short == "" || long == "" {
 		http.Error(w, "short and long required", http.StatusBadRequest)
 		return
 	}
-	res, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+
+	login := ""
+	if devMode() {
+		login = "foo@example.com"
+	} else {
+		res, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		login = res.UserProfile.LoginName
 	}
-	login := res.UserProfile.LoginName
 
 	dl, err := loadLink(short)
 	if err == nil && dl.Owner != login {
@@ -218,4 +249,35 @@ func serveExport(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, "%s\n", buf.Bytes())
 	}
+}
+
+func restoreLastSnapshot() error {
+	bs := bufio.NewScanner(bytes.NewReader(lastSnapshot))
+	var restored int
+	for bs.Scan() {
+		data := bs.Bytes()
+		dl := new(DiskLink)
+		if err := json.Unmarshal(data, dl); err != nil {
+			return err
+		}
+		if dl.Short == "" {
+			continue
+		}
+		file := linkPath(dl.Short)
+		_, err := os.Stat(file)
+		if err == nil {
+			continue // exists
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.WriteFile(file, data, 0644); err != nil {
+			return err
+		}
+		restored++
+	}
+	if restored > 0 {
+		log.Printf("Restored %v links.", restored)
+	}
+	return bs.Err()
 }

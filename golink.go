@@ -28,6 +28,7 @@ var (
 	verbose = flag.Bool("verbose", false, "be verbose")
 	linkDir = flag.String("linkdir", "", "the directory to store one JSON file per go/ shortlink")
 	dev     = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set linkDir if empty and don't use tsnet")
+	doMkdir = flag.Bool("mkdir", false, "whether to make --linkdir at start")
 )
 
 //go:embed link-snapshot.json
@@ -59,6 +60,13 @@ func main() {
 			log.Fatalf("--linkdir is required")
 		}
 	}
+
+	if *doMkdir {
+		if err := os.MkdirAll(*linkDir, 0755); err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	if fi, err := os.Stat(*linkDir); err != nil {
 		log.Fatal(err)
 	} else if !fi.IsDir() {
@@ -136,7 +144,7 @@ func loadLink(short string) (*DiskLink, error) {
 }
 
 func serveGo(w http.ResponseWriter, r *http.Request) {
-	if r.RequestURI == "/export" {
+	if r.RequestURI == "/_/export" {
 		serveExport(w, r)
 		return
 	}

@@ -206,7 +206,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	if dl == nil {
 		dl = &DiskLink{
 			Short:   short,

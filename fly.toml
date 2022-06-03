@@ -8,9 +8,6 @@ app = "tsgo"
 [build]
 image = "registry.fly.io/tsgo:latest"
 
-[experimental]
-cmd = ["/tsgo", "-verbose", "-linkdir=/root/linkdata", "-mkdir"]
-
 [deploy]
 strategy = "immediate"
 

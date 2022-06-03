@@ -11,4 +11,5 @@ go run github.com/tailscale/mkctr \
   --gopaths="tailscale.io/cmd/golink:/tsgo" \
   --tags="latest" \
   --repos="registry.fly.io/tsgo" \
-  --push
+  --push \
+  /tsgo -verbose -linkdir=/root/linkdata -mkdir

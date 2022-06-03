@@ -180,7 +180,10 @@ func serveHome(w http.ResponseWriter, short string) {
 		clicks = clicks[:200]
 	}
 	sort.Slice(clicks, func(i, j int) bool {
-		return clicks[i].NumClicks > clicks[j].NumClicks
+		if clicks[i].NumClicks != clicks[j].NumClicks {
+			return clicks[i].NumClicks > clicks[j].NumClicks
+		}
+		return clicks[i].Short < clicks[j].Short
 	})
 
 	homeCreate.Execute(w, homeData{

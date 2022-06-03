@@ -14,8 +14,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
@@ -177,14 +177,44 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dest, err := url.Parse(dl.Long)
+	target, err := expandLink(dl.Long, remainder, expandEnv{Now: time.Now().UTC()})
 	if err != nil {
-		log.Printf("error parsing URL %q: %v", dl.Long, err)
+		log.Printf("expanding %q: %v", dl.Long, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	dest.Path = path.Join(dest.RequestURI(), remainder)
-	http.Redirect(w, r, dest.String(), http.StatusFound)
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+var reVarExpand = regexp.MustCompile(`\$\{\w+\}`)
+
+type expandEnv struct {
+	Now time.Time
+}
+
+func expandLink(long, remainder string, env expandEnv) (string, error) {
+	if strings.HasPrefix(long, "$") {
+		long = reVarExpand.ReplaceAllStringFunc(long[1:], func(m string) string {
+			switch m {
+			case "${YYYY}":
+				return env.Now.Format("2006")
+			case "${MM}":
+				return env.Now.Format("01")
+			case "${DD}":
+				return env.Now.Format("02")
+			default:
+				return m
+			}
+		})
+	}
+	_, err := url.Parse(long)
+	if err != nil {
+		return "", err
+	}
+	if remainder != "" {
+		return strings.TrimSuffix(long, "/") + "/" + remainder, nil
+	}
+	return long, nil
 }
 
 func devMode() bool { return *dev != "" }

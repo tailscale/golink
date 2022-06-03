@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -31,6 +32,11 @@ var (
 	dev     = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set linkDir if empty and don't use tsnet")
 	doMkdir = flag.Bool("mkdir", false, "whether to make --linkdir at start")
 )
+
+var stats struct {
+	mu     sync.Mutex
+	clicks map[string]int // short link -> number of times visited
+}
 
 //go:embed link-snapshot.json
 var lastSnapshot []byte
@@ -108,9 +114,15 @@ func main() {
 // create or edit links.
 var homeCreate *template.Template
 
+type visitData struct {
+	Short     string
+	NumClicks int
+}
+
 // homeData is the data used by the homeCreate template.
 type homeData struct {
-	Short string
+	Short  string
+	Clicks []visitData
 }
 
 func init() {
@@ -123,6 +135,14 @@ shortlink service.
 <form method="POST" action="/">
 http://go/<input name=short size=20 value="{{.Short}}"> ==&gt; <input name=long size=40> <input type=submit value="create">
 </form>
+
+<h2>recent popular links</h2>
+<table>
+<tr><th>short link</th><th>num clicks</th></tr>
+{{range .Clicks}}
+<tr><td><a href="http://go/{{.Short}}">http://go/{{.Short}}</a></td><td>{{.NumClicks}}</td></tr>
+{{end}}
+</table>
 `))
 }
 
@@ -144,6 +164,31 @@ func loadLink(short string) (*DiskLink, error) {
 	return dl, nil
 }
 
+func serveHome(w http.ResponseWriter, short string) {
+	var clicks []visitData
+
+	stats.mu.Lock()
+	for short, numClicks := range stats.clicks {
+		clicks = append(clicks, visitData{
+			Short:     html.EscapeString(short),
+			NumClicks: numClicks,
+		})
+	}
+	stats.mu.Unlock()
+
+	if len(clicks) > 200 {
+		clicks = clicks[:200]
+	}
+	sort.Slice(clicks, func(i, j int) bool {
+		return clicks[i].NumClicks > clicks[j].NumClicks
+	})
+
+	homeCreate.Execute(w, homeData{
+		Short:  html.EscapeString(short),
+		Clicks: clicks,
+	})
+}
+
 func serveGo(w http.ResponseWriter, r *http.Request) {
 	if r.RequestURI == "/_/export" {
 		serveExport(w, r)
@@ -153,9 +198,7 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	if r.RequestURI == "/" {
 		switch r.Method {
 		case "GET":
-			homeCreate.Execute(w, homeData{
-				Short: "",
-			})
+			serveHome(w, "")
 		case "POST":
 			serveSave(w, r)
 		}
@@ -166,9 +209,7 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 
 	dl, err := loadLink(short)
 	if os.IsNotExist(err) {
-		homeCreate.Execute(w, homeData{
-			Short: short,
-		})
+		serveHome(w, short)
 		return
 	}
 	if err != nil {
@@ -176,6 +217,13 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	stats.mu.Lock()
+	if stats.clicks == nil {
+		stats.clicks = make(map[string]int)
+	}
+	stats.clicks[dl.Short]++
+	stats.mu.Unlock()
 
 	target, err := expandLink(dl.Long, remainder, expandEnv{Now: time.Now().UTC()})
 	if err != nil {

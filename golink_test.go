@@ -9,8 +9,8 @@ func TestExpandLink(t *testing.T) {
 	tests := []struct {
 		name      string
 		long      string
-		remainder string
 		now       time.Time
+		remainder string
 		want      string
 	}{
 		{
@@ -38,14 +38,25 @@ func TestExpandLink(t *testing.T) {
 		},
 		{
 			name: "var-expansions-time",
-			long: "$https://roamresearch.com/#/app/ts-corp/page/${MM}-${DD}-${YYYY}",
+			long: `https://roamresearch.com/#/app/ts-corp/page/{{.Now.Format "01-02-2006"}}`,
 			want: "https://roamresearch.com/#/app/ts-corp/page/06-02-2022",
 			now:  time.Date(2022, 06, 02, 1, 2, 3, 4, time.UTC),
+		},
+		{
+			name: "template-no-path",
+			long: "https://calendar.google.com/{{with .Path}}calendar/embed?mode=week&src={{.}}@tailscale.com{{end}}",
+			want: "https://calendar.google.com/",
+		},
+		{
+			name:      "template-with-path",
+			long:      "https://calendar.google.com/{{with .Path}}calendar/embed?mode=week&src={{.}}@tailscale.com{{end}}",
+			remainder: "amelie",
+			want:      "https://calendar.google.com/calendar/embed?mode=week&src=amelie@tailscale.com",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := expandLink(tt.long, tt.remainder, expandEnv{Now: tt.now})
+			got, err := expandLink(tt.long, expandEnv{Now: tt.now, Path: tt.remainder})
 			if err != nil {
 				t.Fatalf("expandLink(%q): %v", tt.long, err)
 			}

@@ -148,6 +148,7 @@ http://go/<input name=short size=20 value="{{.Short}}"> ==&gt; <input name=long 
 
 func linkPath(short string) string {
 	name := url.PathEscape(strings.ToLower(short))
+	name = strings.ReplaceAll(name, "-", "")
 	name = strings.ReplaceAll(name, ".", "%2e")
 	return filepath.Join(*linkDir, name)
 }
@@ -302,6 +303,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 			Created: now,
 		}
 	}
+	dl.Short = short
 	dl.Long = long
 	dl.LastEdit = now
 	dl.Owner = login

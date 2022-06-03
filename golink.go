@@ -271,10 +271,16 @@ func expandLink(long, remainder string, env expandEnv) (string, error) {
 
 func devMode() bool { return *dev != "" }
 
+var reShortName = regexp.MustCompile(`^[\w\-\.]+$`)
+
 func serveSave(w http.ResponseWriter, r *http.Request) {
 	short, long := r.FormValue("short"), r.FormValue("long")
 	if short == "" || long == "" {
 		http.Error(w, "short and long required", http.StatusBadRequest)
+		return
+	}
+	if !reShortName.MatchString(short) {
+		http.Error(w, "short may only contain letters, numbers, dash, and period", http.StatusBadRequest)
 		return
 	}
 

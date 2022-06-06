@@ -53,6 +53,18 @@ func TestExpandLink(t *testing.T) {
 			remainder: "amelie",
 			want:      "https://calendar.google.com/calendar/embed?mode=week&src=amelie@tailscale.com",
 		},
+		{
+			name:      "template-with-pathescape-func",
+			long:      "http://host.com/{{QueryEscape .Path}}",
+			remainder: "a/b",
+			want:      "http://host.com/a%2Fb",
+		},
+		{
+			name:      "template-with-queryescape-func",
+			long:      "http://host.com/{{QueryEscape .Path}}",
+			remainder: "a+b",
+			want:      "http://host.com/a%2Bb",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

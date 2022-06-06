@@ -243,9 +243,14 @@ var reVarExpand = regexp.MustCompile(`\$\{\w+\}`)
 type expandEnv struct {
 	Now time.Time
 
-	// Remaining path after short name.  For example, in
+	// Path is the remaining path after short name.  For example, in
 	// "http://go/who/amelie", Path is "amelie".
 	Path string
+}
+
+var expandFuncMap = template.FuncMap{
+	"PathEscape":  url.PathEscape,
+	"QueryEscape": url.QueryEscape,
 }
 
 // expandLink returns the expanded long URL to redirect to, executing any
@@ -262,7 +267,7 @@ func expandLink(long string, env expandEnv) (string, error) {
 			long += "{{with .Path}}/{{.}}{{end}}"
 		}
 	}
-	tmpl, err := template.New("").Parse(long)
+	tmpl, err := template.New("").Funcs(expandFuncMap).Parse(long)
 	if err != nil {
 		return "", err
 	}

@@ -4,6 +4,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"embed"
 	_ "embed"
 	"encoding/json"
 	"flag"
@@ -40,6 +41,9 @@ var stats struct {
 
 //go:embed link-snapshot.json
 var lastSnapshot []byte
+
+//go:embed *.html
+var embeddedFS embed.FS
 
 var localClient *tailscale.LocalClient
 
@@ -126,24 +130,7 @@ type homeData struct {
 }
 
 func init() {
-	homeCreate = template.Must(template.New("home").Parse(`<html>
-<body>
-<h1>go/</h1>
-shortlink service.
-
-<h2>create</h2>
-<form method="POST" action="/">
-http://go/<input name=short size=20 value="{{.Short}}"> ==&gt; <input name=long size=40> <input type=submit value="create">
-</form>
-
-<h2>recent popular links</h2>
-<table>
-<tr><th>short link</th><th>num clicks</th></tr>
-{{range .Clicks}}
-<tr><td><a href="http://go/{{.Short}}">http://go/{{.Short}}</a></td><td>{{.NumClicks}}</td></tr>
-{{end}}
-</table>
-`))
+	homeCreate = template.Must(template.ParseFS(embeddedFS, "home.html"))
 }
 
 func linkPath(short string) string {

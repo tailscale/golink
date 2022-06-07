@@ -296,7 +296,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "short may only contain letters, numbers, dash, and period", http.StatusBadRequest)
 		return
 	}
-	if _, err := template.New("").Parse(long); err != nil {
+	if _, err := template.New("").Funcs(expandFuncMap).Parse(long); err != nil {
 		http.Error(w, fmt.Sprintf("long contains an invalid template: %v", err), http.StatusBadRequest)
 		return
 	}

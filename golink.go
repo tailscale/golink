@@ -42,7 +42,7 @@ var stats struct {
 //go:embed link-snapshot.json
 var lastSnapshot []byte
 
-//go:embed *.html
+//go:embed *.html static
 var embeddedFS embed.FS
 
 var localClient *tailscale.LocalClient
@@ -86,9 +86,13 @@ func main() {
 
 	restoreLastSnapshot()
 
+	http.HandleFunc("/", serveGo)
+	http.HandleFunc("/_/export", serveExport)
+	http.Handle("/_/static/", http.StripPrefix("/_/", http.FileServer(http.FS(embeddedFS))))
+
 	if *dev != "" {
 		log.Printf("Running in dev mode on %s ...", *dev)
-		log.Fatal(http.ListenAndServe(*dev, http.HandlerFunc(serveGo)))
+		log.Fatal(http.ListenAndServe(*dev, nil))
 	}
 
 	srv := &tsnet.Server{
@@ -109,7 +113,7 @@ func main() {
 	}
 
 	log.Printf("Serving http://go/ ...")
-	if err := http.Serve(l80, http.HandlerFunc(serveGo)); err != nil {
+	if err := http.Serve(l80, nil); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -181,11 +185,6 @@ func serveHome(w http.ResponseWriter, short string) {
 }
 
 func serveGo(w http.ResponseWriter, r *http.Request) {
-	if r.RequestURI == "/_/export" {
-		serveExport(w, r)
-		return
-	}
-
 	if r.RequestURI == "/" {
 		switch r.Method {
 		case "GET":

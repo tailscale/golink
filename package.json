@@ -1,0 +1,11 @@
+{
+  "name": "golink",
+  "scripts": {
+    "start:css": "tailwindcss --watch -o static/base.css",
+    "build:css": "tailwindcss -o static/base.css"
+  },
+  "devDependencies": {
+    "@tailwindcss/forms": "^0.5.2",
+    "tailwindcss": "^3.0.24"
+  }
+}

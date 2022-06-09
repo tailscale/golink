@@ -1,6 +1,9 @@
 <html>
-<title>go/</title>
-<link rel="stylesheet" href="/_/static/base.css">
+<head>
+  <title>go/</title>
+  <link rel="stylesheet" href="/_/static/base.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
 <body class="flex flex-col min-h-screen">
   <div class="bg-gray-100 border-b border-gray-200 pt-4 pb-2 mb-6">
     <header class="container mx-auto px-4">
@@ -17,7 +20,7 @@
         <input name=short required type=text size=15 placeholder="shortname" value="{{.Short}}" class="p-2 my-2 rounded-md border-gray-300 placeholder:text-gray-400">
         &rarr;
       </label>
-      <input name=long required type=text size=40 placeholder="https://destination-url" class="p-2 my-2 rounded-md border-gray-300 placeholder:text-gray-400">
+      <input name=long required type=text size=40 placeholder="https://destination-url" class="p-2 my-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400">
       <button type=submit class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Create</button>
     </form>
 

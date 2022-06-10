@@ -166,6 +166,12 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 
 	short, remainder, _ := strings.Cut(strings.TrimPrefix(r.RequestURI, "/"), "/")
 
+	var serveInfo bool
+	if strings.HasSuffix(short, "+") {
+		serveInfo = true
+		short = strings.TrimSuffix(short, "+")
+	}
+
 	link, err := db.Load(short)
 	if errors.Is(err, fs.ErrNotExist) {
 		serveHome(w, short)
@@ -174,6 +180,17 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("serving %q: %v", short, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if serveInfo {
+		j, err := json.MarshalIndent(link, "", "  ")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(j)
 		return
 	}
 
@@ -312,6 +329,7 @@ func serveExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sort.Strings(names)
+
 	encoder := json.NewEncoder(w)
 	for _, name := range names {
 		link, err := db.Load(name)

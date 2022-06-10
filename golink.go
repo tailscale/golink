@@ -4,6 +4,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"embed"
 	_ "embed"
 	"encoding/json"
@@ -335,6 +336,20 @@ func currentUser(r *http.Request) (string, error) {
 
 }
 
+// userExists returns whether a user exists with the specified login in the current tailnet.
+func userExists(ctx context.Context, login string) (bool, error) {
+	st, err := localClient.Status(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, user := range st.User {
+		if user.LoginName == login {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 var reShortName = regexp.MustCompile(`^[\w\-\.]+$`)
 
 // serveSave handles requests to save or update a Link.  Both short name and
@@ -362,9 +377,17 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	link, err := db.Load(short)
-	if err == nil && link.Owner != login {
-		http.Error(w, "not your link; owned by "+link.Owner, http.StatusForbidden)
-		return
+	if err == nil && link.Owner != "" && link.Owner != login {
+		exists, err := userExists(r.Context(), link.Owner)
+		if err != nil {
+			log.Printf("looking up tailnet user %q: %v", link.Owner, err)
+		}
+		// Don't allow taking over links if the owner account still exists
+		// or if we're unsure because an error occurred.
+		if exists || err != nil {
+			http.Error(w, "not your link; owned by "+link.Owner, http.StatusForbidden)
+			return
+		}
 	}
 
 	now := time.Now().UTC()

@@ -17,12 +17,13 @@ type Link struct {
 	Created  time.Time
 	LastEdit time.Time // when the link was last edited
 	Owner    string    // user@domain
+	Clicks   int       // number of times this link has been served
 }
 
 // DB provides storage for Links.
 type DB interface {
-	// List the short name of all stored Links.
-	List() ([]string, error)
+	// LoadAll returns all stored Links.
+	LoadAll() ([]*Link, error)
 
 	// Load a Link by its short name. It returns fs.ErrNotExist if the link does not exist.
 	Load(short string) (*Link, error)
@@ -67,7 +68,7 @@ func (f *FileDB) linkPath(short string) string {
 	return filepath.Join(f.dir, name)
 }
 
-func (f *FileDB) List() ([]string, error) {
+func (f *FileDB) LoadAll() ([]*Link, error) {
 	d, err := os.Open(f.dir)
 	if err != nil {
 		return nil, err
@@ -78,7 +79,17 @@ func (f *FileDB) List() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return names, nil
+
+	links := make([]*Link, len(names))
+	for i, short := range names {
+		link, err := f.Load(short)
+		if err != nil {
+			return nil, err
+		}
+		links[i] = link
+	}
+
+	return links, nil
 }
 
 func (f *FileDB) Load(short string) (*Link, error) {

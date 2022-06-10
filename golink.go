@@ -37,6 +37,9 @@ var (
 var stats struct {
 	mu     sync.Mutex
 	clicks map[string]int // short link -> number of times visited
+
+	// dirty identifies short links with clicks that have not yet been stored.
+	dirty map[string]bool
 }
 
 //go:embed link-snapshot.json
@@ -72,7 +75,15 @@ func main() {
 		log.Fatalf("NewFileDB(%q): %v", *linkDir, err)
 	}
 
-	restoreLastSnapshot()
+	if err := restoreLastSnapshot(); err != nil {
+		log.Printf("restoring snapshot: %v", err)
+	}
+	if err := initStats(); err != nil {
+		log.Printf("initializing stats: %v", err)
+	}
+
+	// flush stats periodically
+	go flushStatsLoop()
 
 	http.HandleFunc("/", serveGo)
 	http.HandleFunc("/_/export", serveExport)
@@ -123,6 +134,57 @@ type homeData struct {
 
 func init() {
 	homeCreate = template.Must(template.ParseFS(embeddedFS, "home.html"))
+}
+
+// initStats initializes the in-memory stats counter with counts from db.
+func initStats() error {
+	links, err := db.LoadAll()
+	if err != nil {
+		return err
+	}
+
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+
+	stats.clicks = make(map[string]int)
+	for _, link := range links {
+		if link.Clicks > 0 {
+			stats.clicks[link.Short] = link.Clicks
+		}
+	}
+
+	return nil
+}
+
+// flushStats writes any pending link stats to db.
+func flushStats() error {
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+
+	for short := range stats.dirty {
+		link, err := db.Load(short)
+		if err != nil {
+			return err
+		}
+		if link.Clicks != stats.clicks[short] {
+			link.Clicks = stats.clicks[short]
+			if err := db.Save(link); err != nil {
+				return err
+			}
+		}
+		delete(stats.dirty, short)
+	}
+	return nil
+}
+
+// flushStatsLoop will flush stats every minute.  This function never returns.
+func flushStatsLoop() {
+	for {
+		if err := flushStats(); err != nil {
+			log.Printf("flushing stats: %v", err)
+		}
+		time.Sleep(time.Minute)
+	}
 }
 
 func serveHome(w http.ResponseWriter, short string) {
@@ -199,6 +261,10 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		stats.clicks = make(map[string]int)
 	}
 	stats.clicks[link.Short]++
+	if stats.dirty == nil {
+		stats.dirty = make(map[string]bool)
+	}
+	stats.dirty[link.Short] = true
 	stats.mu.Unlock()
 
 	target, err := expandLink(link.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
@@ -329,19 +395,21 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 // and printed one per line. This format is used to restore link snapshots on
 // startup.
 func serveExport(w http.ResponseWriter, r *http.Request) {
-	names, err := db.List()
+	if err := flushStats(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	links, err := db.LoadAll()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sort.Strings(names)
-
+	sort.Slice(links, func(i, j int) bool {
+		return links[i].Short < links[j].Short
+	})
 	encoder := json.NewEncoder(w)
-	for _, name := range names {
-		link, err := db.Load(name)
-		if err != nil {
-			panic(http.ErrAbortHandler)
-		}
+	for _, link := range links {
 		if err := encoder.Encode(link); err != nil {
 			panic(http.ErrAbortHandler)
 		}

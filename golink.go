@@ -1,4 +1,4 @@
-// The golink server runs http://go/, a company shortlink service.
+// The golink server runs http://go/, a private shortlink service for tailnets.
 package main
 
 import (
@@ -7,15 +7,15 @@ import (
 	"embed"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"html"
+	"io/fs"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -45,16 +45,10 @@ var lastSnapshot []byte
 //go:embed *.html static
 var embeddedFS embed.FS
 
-var localClient *tailscale.LocalClient
+// db stores short links.
+var db DB
 
-// DiskLink is the JSON structure stored on disk in a file for each go short link.
-type DiskLink struct {
-	Short    string // the "foo" part of http://go/foo
-	Long     string // the target URL
-	Created  time.Time
-	LastEdit time.Time // when the link was created
-	Owner    string    // foo@tailscale.com
-}
+var localClient *tailscale.LocalClient
 
 func main() {
 	flag.Parse()
@@ -72,16 +66,10 @@ func main() {
 		}
 	}
 
-	if *doMkdir {
-		if err := os.MkdirAll(*linkDir, 0755); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	if fi, err := os.Stat(*linkDir); err != nil {
-		log.Fatal(err)
-	} else if !fi.IsDir() {
-		log.Fatalf("--linkdir %q is not a directory", *linkDir)
+	var err error
+	db, err = NewFileDB(*linkDir, *doMkdir)
+	if err != nil {
+		log.Fatalf("NewFileDB(%q): %v", *linkDir, err)
 	}
 
 	restoreLastSnapshot()
@@ -97,7 +85,7 @@ func main() {
 
 	srv := &tsnet.Server{
 		Hostname: "go",
-		Logf:     func(format string, args ...interface{}) {},
+		Logf:     func(format string, args ...any) {},
 	}
 	if *verbose {
 		srv.Logf = log.Printf
@@ -135,25 +123,6 @@ type homeData struct {
 
 func init() {
 	homeCreate = template.Must(template.ParseFS(embeddedFS, "home.html"))
-}
-
-func linkPath(short string) string {
-	name := url.PathEscape(strings.ToLower(short))
-	name = strings.ReplaceAll(name, "-", "")
-	name = strings.ReplaceAll(name, ".", "%2e")
-	return filepath.Join(*linkDir, name)
-}
-
-func loadLink(short string) (*DiskLink, error) {
-	data, err := os.ReadFile(linkPath(short))
-	if err != nil {
-		return nil, err
-	}
-	dl := new(DiskLink)
-	if err := json.Unmarshal(data, dl); err != nil {
-		return nil, err
-	}
-	return dl, nil
 }
 
 func serveHome(w http.ResponseWriter, short string) {
@@ -195,10 +164,10 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	short, remainder, _ := strings.Cut(strings.ToLower(strings.TrimPrefix(r.RequestURI, "/")), "/")
+	short, remainder, _ := strings.Cut(strings.TrimPrefix(r.RequestURI, "/"), "/")
 
-	dl, err := loadLink(short)
-	if os.IsNotExist(err) {
+	link, err := db.Load(short)
+	if errors.Is(err, fs.ErrNotExist) {
 		serveHome(w, short)
 		return
 	}
@@ -212,19 +181,17 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	if stats.clicks == nil {
 		stats.clicks = make(map[string]int)
 	}
-	stats.clicks[dl.Short]++
+	stats.clicks[link.Short]++
 	stats.mu.Unlock()
 
-	target, err := expandLink(dl.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
+	target, err := expandLink(link.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
 	if err != nil {
-		log.Printf("expanding %q: %v", dl.Long, err)
+		log.Printf("expanding %q: %v", link.Long, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, target, http.StatusFound)
 }
-
-var reVarExpand = regexp.MustCompile(`\$\{\w+\}`)
 
 type expandEnv struct {
 	Now time.Time
@@ -270,8 +237,26 @@ func expandLink(long string, env expandEnv) (string, error) {
 
 func devMode() bool { return *dev != "" }
 
+func currentUser(r *http.Request) (string, error) {
+	login := ""
+	if devMode() {
+		login = "foo@example.com"
+	} else {
+		res, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
+		if err != nil {
+			return "", err
+		}
+		login = res.UserProfile.LoginName
+	}
+	return login, nil
+
+}
+
 var reShortName = regexp.MustCompile(`^[\w\-\.]+$`)
 
+// serveSave handles requests to save or update a Link.  Both short name and
+// long URL are validated for proper format. Existing links may only be updated
+// by their owner.
 func serveSave(w http.ResponseWriter, r *http.Request) {
 	short, long := r.FormValue("short"), r.FormValue("long")
 	if short == "" || long == "" {
@@ -287,75 +272,55 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	login := ""
-	if devMode() {
-		login = "foo@example.com"
-	} else {
-		res, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		login = res.UserProfile.LoginName
-	}
-
-	dl, err := loadLink(short)
-	if err == nil && dl.Owner != login {
-		http.Error(w, "not your link; owned by "+dl.Owner, http.StatusForbidden)
-		return
-	}
-
-	now := time.Now().UTC()
-	if dl == nil {
-		dl = &DiskLink{
-			Short:   short,
-			Created: now,
-		}
-	}
-	dl.Short = short
-	dl.Long = long
-	dl.LastEdit = now
-	dl.Owner = login
-	j, err := json.MarshalIndent(dl, "", "  ")
+	login, err := currentUser(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := os.WriteFile(linkPath(short), j, 0600); err != nil {
+
+	link, err := db.Load(short)
+	if err == nil && link.Owner != login {
+		http.Error(w, "not your link; owned by "+link.Owner, http.StatusForbidden)
+		return
+	}
+
+	now := time.Now().UTC()
+	if link == nil {
+		link = &Link{
+			Short:   short,
+			Created: now,
+		}
+	}
+	link.Short = short
+	link.Long = long
+	link.LastEdit = now
+	link.Owner = login
+	if err := db.Save(link); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	fmt.Fprintf(w, "<h1>saved</h1>made <a href='http://go/%s'>http://go/%s</a>", html.EscapeString(short), html.EscapeString(short))
 }
 
+// serveExport prints a snapshot of the link database. Links are JSON encoded
+// and printed one per line. This format is used to restore link snapshots on
+// startup.
 func serveExport(w http.ResponseWriter, r *http.Request) {
-	d, err := os.Open(*linkDir)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer d.Close()
-
-	names, err := d.Readdirnames(0)
+	names, err := db.List()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	sort.Strings(names)
-	var buf bytes.Buffer
+	encoder := json.NewEncoder(w)
 	for _, name := range names {
-		if name == "." || name == ".." {
-			continue
-		}
-		d, err := os.ReadFile(filepath.Join(*linkDir, name))
+		link, err := db.Load(name)
 		if err != nil {
 			panic(http.ErrAbortHandler)
 		}
-		buf.Reset()
-		if err := json.Compact(&buf, d); err != nil {
+		if err := encoder.Encode(link); err != nil {
 			panic(http.ErrAbortHandler)
 		}
-		fmt.Fprintf(w, "%s\n", buf.Bytes())
 	}
 }
 
@@ -363,23 +328,21 @@ func restoreLastSnapshot() error {
 	bs := bufio.NewScanner(bytes.NewReader(lastSnapshot))
 	var restored int
 	for bs.Scan() {
-		data := bs.Bytes()
-		dl := new(DiskLink)
-		if err := json.Unmarshal(data, dl); err != nil {
+		link := new(Link)
+		if err := json.Unmarshal(bs.Bytes(), link); err != nil {
 			return err
 		}
-		if dl.Short == "" {
+		if link.Short == "" {
 			continue
 		}
-		file := linkPath(dl.Short)
-		_, err := os.Stat(file)
+		_, err := db.Load(link.Short)
 		if err == nil {
 			continue // exists
 		}
-		if err != nil && !os.IsNotExist(err) {
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		if err := os.WriteFile(file, data, 0644); err != nil {
+		if err := db.Save(link); err != nil {
 			return err
 		}
 		restored++

@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -423,6 +424,11 @@ func serveExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	includeClicks := true
+	if v := r.FormValue("clicks"); v != "" {
+		includeClicks, _ = strconv.ParseBool(v)
+	}
+
 	links, err := db.LoadAll()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -433,6 +439,9 @@ func serveExport(w http.ResponseWriter, r *http.Request) {
 	})
 	encoder := json.NewEncoder(w)
 	for _, link := range links {
+		if !includeClicks {
+			link.Clicks = 0
+		}
 		if err := encoder.Encode(link); err != nil {
 			panic(http.ErrAbortHandler)
 		}

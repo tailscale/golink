@@ -17,19 +17,25 @@ type Link struct {
 	Created  time.Time
 	LastEdit time.Time // when the link was last edited
 	Owner    string    // user@domain
-	Clicks   int       // number of times this link has been served
+	Clicks   int       `json:",omitempty"` // number of times this link has been served
 }
 
 // DB provides storage for Links.
 type DB interface {
 	// LoadAll returns all stored Links.
+	//
+	// The caller owns the returned values.
 	LoadAll() ([]*Link, error)
 
-	// Load a Link by its short name. It returns fs.ErrNotExist if the link does not exist.
+	// Load returns a Link by its short name.
+	//
+	// It returns fs.ErrNotExist if the link does not exist.
+	//
+	// The caller owns the returned value.
 	Load(short string) (*Link, error)
 
-	// Save a Link.
-	Save(link *Link) error
+	// Save saves a Link.
+	Save(*Link) error
 }
 
 // FileDB stores Links in JSON files on disk.

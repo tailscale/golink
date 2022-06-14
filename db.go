@@ -20,6 +20,10 @@ type Link struct {
 	Clicks   int       `json:",omitempty"` // number of times this link has been served
 }
 
+// ClickStats is the number of clicks a set of links have received in a given
+// time period. It is keyed by link short name, with values of total clicks.
+type ClickStats map[string]int
+
 // DB provides storage for Links.
 type DB interface {
 	// LoadAll returns all stored Links.
@@ -36,6 +40,14 @@ type DB interface {
 
 	// Save saves a Link.
 	Save(*Link) error
+
+	// LoadStats returns click stats for links.
+	LoadStats() (ClickStats, error)
+
+	// SaveStats records click stats for links.  The provided map includes
+	// incremental clicks that have occurred since the last time SaveStats
+	// was called.
+	SaveStats(ClickStats) error
 }
 
 // FileDB stores Links in JSON files on disk.
@@ -117,6 +129,39 @@ func (f *FileDB) Save(link *Link) error {
 	}
 	if err := os.WriteFile(f.linkPath(link.Short), j, 0600); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (f *FileDB) LoadStats() (ClickStats, error) {
+	links, err := db.LoadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	stats := make(ClickStats)
+	for _, link := range links {
+		if link.Clicks > 0 {
+			stats[link.Short] = link.Clicks
+		}
+	}
+
+	return stats, nil
+}
+
+func (f *FileDB) SaveStats(stats ClickStats) error {
+	for short, clicks := range stats {
+		if clicks <= 0 {
+			continue
+		}
+		link, err := f.Load(short)
+		if err != nil {
+			return err
+		}
+		link.Clicks += clicks
+		if err := f.Save(link); err != nil {
+			return err
+		}
 	}
 	return nil
 }

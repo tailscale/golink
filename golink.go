@@ -38,10 +38,10 @@ var (
 
 var stats struct {
 	mu     sync.Mutex
-	clicks map[string]int // short link -> number of times visited
+	clicks ClickStats // short link -> number of times visited
 
-	// dirty identifies short links with clicks that have not yet been stored.
-	dirty map[string]bool
+	// dirty identifies short link clicks that have not yet been stored.
+	dirty ClickStats
 }
 
 //go:embed link-snapshot.json
@@ -140,20 +140,16 @@ func init() {
 
 // initStats initializes the in-memory stats counter with counts from db.
 func initStats() error {
-	links, err := db.LoadAll()
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+
+	clicks, err := db.LoadStats()
 	if err != nil {
 		return err
 	}
 
-	stats.mu.Lock()
-	defer stats.mu.Unlock()
-
-	stats.clicks = make(map[string]int)
-	for _, link := range links {
-		if link.Clicks > 0 {
-			stats.clicks[link.Short] = link.Clicks
-		}
-	}
+	stats.clicks = clicks
+	stats.dirty = make(ClickStats)
 
 	return nil
 }
@@ -163,19 +159,10 @@ func flushStats() error {
 	stats.mu.Lock()
 	defer stats.mu.Unlock()
 
-	for short := range stats.dirty {
-		link, err := db.Load(short)
-		if err != nil {
-			return err
-		}
-		if link.Clicks != stats.clicks[short] {
-			link.Clicks = stats.clicks[short]
-			if err := db.Save(link); err != nil {
-				return err
-			}
-		}
-		delete(stats.dirty, short)
+	if err := db.SaveStats(stats.dirty); err != nil {
+		return err
 	}
+	stats.dirty = make(ClickStats)
 	return nil
 }
 
@@ -260,13 +247,13 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 
 	stats.mu.Lock()
 	if stats.clicks == nil {
-		stats.clicks = make(map[string]int)
+		stats.clicks = make(ClickStats)
 	}
 	stats.clicks[link.Short]++
 	if stats.dirty == nil {
-		stats.dirty = make(map[string]bool)
+		stats.dirty = make(ClickStats)
 	}
-	stats.dirty[link.Short] = true
+	stats.dirty[link.Short]++
 	stats.mu.Unlock()
 
 	target, err := expandLink(link.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})

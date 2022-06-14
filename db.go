@@ -92,7 +92,6 @@ func NewFileDB(dir string, mkdir bool) (*FileDB, error) {
 // characters.
 func (f *FileDB) linkPath(short string) string {
 	name := linkID(short)
-	name = strings.ReplaceAll(name, ".", "%2e")
 	return filepath.Join(f.dir, name)
 }
 
@@ -144,7 +143,7 @@ func (f *FileDB) Save(link *Link) error {
 }
 
 func (f *FileDB) LoadStats() (ClickStats, error) {
-	links, err := db.LoadAll()
+	links, err := f.LoadAll()
 	if err != nil {
 		return nil, err
 	}

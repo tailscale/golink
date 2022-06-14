@@ -88,8 +88,9 @@ func main() {
 	go flushStatsLoop()
 
 	http.HandleFunc("/", serveGo)
-	http.HandleFunc("/_/export", serveExport)
-	http.Handle("/_/static/", http.StripPrefix("/_/", http.FileServer(http.FS(embeddedFS))))
+	http.HandleFunc("/.export", serveExport)
+	http.Handle("/_/export", http.RedirectHandler("/.export", http.StatusMovedPermanently))
+	http.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
 	if *dev != "" {
 		log.Printf("Running in dev mode on %s ...", *dev)
@@ -338,7 +339,7 @@ func userExists(ctx context.Context, login string) (bool, error) {
 	return false, nil
 }
 
-var reShortName = regexp.MustCompile(`^[\w\-\.]+$`)
+var reShortName = regexp.MustCompile(`^\w[\w\-\.]*$`)
 
 // serveSave handles requests to save or update a Link.  Both short name and
 // long URL are validated for proper format. Existing links may only be updated

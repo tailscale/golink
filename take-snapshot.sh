@@ -3,4 +3,4 @@
 set -e
 set -x
 
-curl -o $(dirname "$0")/link-snapshot.json 'http://go/_/export?clicks=false'
+curl -o $(dirname "$0")/link-snapshot.json 'http://go/.export?clicks=false'

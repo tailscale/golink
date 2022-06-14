@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
+	"database/sql"
+	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 // Link is the structure stored for each go short link.
@@ -23,6 +30,13 @@ type Link struct {
 // ClickStats is the number of clicks a set of links have received in a given
 // time period. It is keyed by link short name, with values of total clicks.
 type ClickStats map[string]int
+
+// linkID returns the normalized ID for a link short name.
+func linkID(short string) string {
+	id := url.PathEscape(strings.ToLower(short))
+	id = strings.ReplaceAll(id, "-", "")
+	return id
+}
 
 // DB provides storage for Links.
 type DB interface {
@@ -76,12 +90,8 @@ func NewFileDB(dir string, mkdir bool) (*FileDB, error) {
 // linkPath returns the path to the file on disk for the specified link. Short
 // name is normalized to be case insensitive, remove dashes, and escape some
 // characters.
-//
-// TODO(willnorris): some of this normalization is not unique to FileDB and
-// should be moved elsewhere
 func (f *FileDB) linkPath(short string) string {
-	name := url.PathEscape(strings.ToLower(short))
-	name = strings.ReplaceAll(name, "-", "")
+	name := linkID(short)
 	name = strings.ReplaceAll(name, ".", "%2e")
 	return filepath.Join(f.dir, name)
 }
@@ -164,4 +174,114 @@ func (f *FileDB) SaveStats(stats ClickStats) error {
 		}
 	}
 	return nil
+}
+
+// SQLiteDB stores Links in a SQLite database.
+type SQLiteDB struct {
+	db *sql.DB
+}
+
+//go:embed schema.sql
+var sqlSchema string
+
+// NewSQLiteDB returns a new SQLiteDB that stores links in a SQLite database stored at f.
+func NewSQLiteDB(f string) (*SQLiteDB, error) {
+	db, err := sql.Open("sqlite", f)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(); err != nil {
+		return nil, err
+	}
+
+	if _, err = db.Exec(sqlSchema); err != nil {
+		return nil, err
+	}
+
+	return &SQLiteDB{db: db}, nil
+}
+
+func (s *SQLiteDB) LoadAll() ([]*Link, error) {
+	var links []*Link
+	rows, err := s.db.Query("SELECT Short, Long, Created, LastEdit, Owner FROM Links")
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		link := new(Link)
+		var created, lastEdit int64
+		err := rows.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner)
+		if err != nil {
+			return nil, err
+		}
+		link.Created = time.Unix(created, 0).UTC()
+		link.LastEdit = time.Unix(lastEdit, 0).UTC()
+		links = append(links, link)
+	}
+	return links, rows.Err()
+}
+
+func (s *SQLiteDB) Load(short string) (*Link, error) {
+	link := new(Link)
+	var created, lastEdit int64
+	row := s.db.QueryRow("SELECT Short, Long, Created, LastEdit, Owner FROM Links WHERE ID = ?1 LIMIT 1", linkID(short))
+	err := row.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			err = fs.ErrNotExist
+		}
+		return nil, err
+	}
+	link.Created = time.Unix(created, 0).UTC()
+	link.LastEdit = time.Unix(lastEdit, 0).UTC()
+	return link, nil
+}
+
+func (s *SQLiteDB) Save(link *Link) error {
+	result, err := s.db.Exec("INSERT OR REPLACE INTO Links (ID, Short, Long, Created, LastEdit, Owner) VALUES (?, ?, ?, ?, ?, ?)", linkID(link.Short), link.Short, link.Long, link.Created.Unix(), link.LastEdit.Unix(), link.Owner)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("expected to affect 1 row, affected %d", rows)
+	}
+	return nil
+}
+
+func (s *SQLiteDB) LoadStats() (ClickStats, error) {
+	rows, err := s.db.Query("SELECT ID, sum(Clicks) FROM Stats GROUP BY ID")
+	if err != nil {
+		return nil, err
+	}
+	stats := make(map[string]int)
+	for rows.Next() {
+		var id string
+		var clicks int
+		err := rows.Scan(&id, &clicks)
+		if err != nil {
+			return nil, err
+		}
+		stats[id] = clicks
+	}
+	return stats, rows.Err()
+}
+
+func (s *SQLiteDB) SaveStats(stats ClickStats) error {
+	tx, err := s.db.BeginTx(context.TODO(), nil)
+	if err != nil {
+		return err
+	}
+	now := time.Now().Unix()
+	for short, clicks := range stats {
+		_, err := tx.Exec("INSERT INTO Stats (ID, Created, Clicks) VALUES (?, ?, ?)", linkID(short), now, clicks)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
 }

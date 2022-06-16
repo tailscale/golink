@@ -12,4 +12,4 @@ go run github.com/tailscale/mkctr \
   --tags="latest" \
   --repos="registry.fly.io/tsgo" \
   --push \
-  /tsgo -verbose -linkdir=/root/linkdata -mkdir
+  /tsgo -verbose -sqlitedb /root/golinks.db

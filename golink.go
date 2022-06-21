@@ -47,7 +47,7 @@ var stats struct {
 //go:embed link-snapshot.json
 var lastSnapshot []byte
 
-//go:embed *.html static
+//go:embed static tmpl/*.html
 var embeddedFS embed.FS
 
 // db stores short links.
@@ -89,6 +89,7 @@ func main() {
 
 	http.HandleFunc("/", serveGo)
 	http.HandleFunc("/.export", serveExport)
+	http.HandleFunc("/.help", serveHelp)
 	http.Handle("/_/export", http.RedirectHandler("/.export", http.StatusMovedPermanently))
 	http.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
@@ -120,23 +121,27 @@ func main() {
 	}
 }
 
-// homeCreate is the template used by the http://go/ index page where you can
+// homeTmpl is the template used by the http://go/ index page where you can
 // create or edit links.
-var homeCreate *template.Template
+var homeTmpl *template.Template
+
+// helpTmpl is the template used by the http://go/.help page
+var helpTmpl *template.Template
 
 type visitData struct {
 	Short     string
 	NumClicks int
 }
 
-// homeData is the data used by the homeCreate template.
+// homeData is the data used by the homeTmpl template.
 type homeData struct {
 	Short  string
 	Clicks []visitData
 }
 
 func init() {
-	homeCreate = template.Must(template.ParseFS(embeddedFS, "home.html"))
+	homeTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/home.html"))
+	helpTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/help.html"))
 }
 
 // initStats initializes the in-memory stats counter with counts from db.
@@ -199,10 +204,14 @@ func serveHome(w http.ResponseWriter, short string) {
 		return clicks[i].Short < clicks[j].Short
 	})
 
-	homeCreate.Execute(w, homeData{
+	homeTmpl.Execute(w, homeData{
 		Short:  html.EscapeString(short),
 		Clicks: clicks,
 	})
+}
+
+func serveHelp(w http.ResponseWriter, r *http.Request) {
+	helpTmpl.Execute(w, nil)
 }
 
 func serveGo(w http.ResponseWriter, r *http.Request) {

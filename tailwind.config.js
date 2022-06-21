@@ -1,5 +1,5 @@
 module.exports = {
-  content: ["./*.html"],
+  content: ["./tmpl/*.html"],
   theme: {
     colors: {
       blue: {
@@ -27,8 +27,23 @@ module.exports = {
       white: '#fff',
       current: 'currentColor',
     },
+    extend: {
+      typography: {
+        DEFAULT: {
+          css: {
+            'code::before': {
+              'content': '',
+            },
+            'code::after': {
+              'content': '',
+            },
+          },
+        },
+      },
+    },
   },
   plugins: [
     require('@tailwindcss/forms'),
+    require('@tailwindcss/typography'),
   ],
 }

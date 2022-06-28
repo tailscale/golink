@@ -10,7 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"html"
+	"html/template"
 	"io/fs"
 	"io/ioutil"
 	"log"
@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"text/template"
+	texttemplate "text/template"
 	"time"
 
 	"tailscale.com/client/tailscale"
@@ -184,6 +184,9 @@ var homeTmpl *template.Template
 // helpTmpl is the template used by the http://go/.help page
 var helpTmpl *template.Template
 
+// successTmpl is the template used when a link is successfully created or updated.
+var successTmpl *template.Template
+
 type visitData struct {
 	Short     string
 	NumClicks int
@@ -198,6 +201,7 @@ type homeData struct {
 func init() {
 	homeTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/home.html"))
 	helpTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/help.html"))
+	successTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/success.html"))
 }
 
 // initStats initializes the in-memory stats counter with counts from db.
@@ -244,7 +248,7 @@ func serveHome(w http.ResponseWriter, short string) {
 	stats.mu.Lock()
 	for short, numClicks := range stats.clicks {
 		clicks = append(clicks, visitData{
-			Short:     html.EscapeString(short),
+			Short:     short,
 			NumClicks: numClicks,
 		})
 	}
@@ -261,7 +265,7 @@ func serveHome(w http.ResponseWriter, short string) {
 	})
 
 	homeTmpl.Execute(w, homeData{
-		Short:  html.EscapeString(short),
+		Short:  short,
 		Clicks: clicks,
 	})
 }
@@ -339,7 +343,7 @@ type expandEnv struct {
 	Path string
 }
 
-var expandFuncMap = template.FuncMap{
+var expandFuncMap = texttemplate.FuncMap{
 	"PathEscape":  url.PathEscape,
 	"QueryEscape": url.QueryEscape,
 }
@@ -358,7 +362,7 @@ func expandLink(long string, env expandEnv) (string, error) {
 			long += "{{with .Path}}/{{.}}{{end}}"
 		}
 	}
-	tmpl, err := template.New("").Funcs(expandFuncMap).Parse(long)
+	tmpl, err := texttemplate.New("").Funcs(expandFuncMap).Parse(long)
 	if err != nil {
 		return "", err
 	}
@@ -419,7 +423,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "short may only contain letters, numbers, dash, and period", http.StatusBadRequest)
 		return
 	}
-	if _, err := template.New("").Funcs(expandFuncMap).Parse(long); err != nil {
+	if _, err := texttemplate.New("").Funcs(expandFuncMap).Parse(long); err != nil {
 		http.Error(w, fmt.Sprintf("long contains an invalid template: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -461,7 +465,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html") {
-		fmt.Fprintf(w, "<h1>saved</h1>made <a href='http://go/%s'>http://go/%s</a>", html.EscapeString(short), html.EscapeString(short))
+		successTmpl.Execute(w, homeData{Short: short})
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(link)

@@ -672,7 +672,7 @@ select {
 }
 
 .prose {
-  color: #333;
+  color: var(--tw-prose-body);
   max-width: 65ch;
 }
 
@@ -685,13 +685,9 @@ select {
 }
 
 .prose :where(a):not(:where([class~="not-prose"] *)) {
-  color: #3182ce;
+  color: var(--tw-prose-links);
   text-decoration: underline;
   font-weight: 500;
-}
-
-.prose :where(a):not(:where([class~="not-prose"] *)):hover {
-  color: #2c5282;
 }
 
 .prose :where(strong):not(:where([class~="not-prose"] *)) {
@@ -1138,16 +1134,12 @@ select {
   min-height: 100vh;
 }
 
-.max-w-4xl {
-  max-width: 56rem;
+.max-w-5xl {
+  max-width: 64rem;
 }
 
 .max-w-full {
   max-width: 100%;
-}
-
-.max-w-5xl {
-  max-width: 64rem;
 }
 
 .flex-1 {
@@ -1290,14 +1282,14 @@ select {
   line-height: 1.75rem;
 }
 
-.text-xs {
-  font-size: 0.75rem;
-  line-height: 1rem;
-}
-
 .text-sm {
   font-size: 0.875rem;
   line-height: 1.25rem;
+}
+
+.text-xs {
+  font-size: 0.75rem;
+  line-height: 1rem;
 }
 
 .font-bold {
@@ -1325,15 +1317,6 @@ select {
 .text-gray-500 {
   --tw-text-opacity: 1;
   color: rgb(159 153 149 / var(--tw-text-opacity));
-}
-
-.text-blue-200 {
-  color: rgba(43, 123, 185, 0.15);
-}
-
-.text-blue-500 {
-  --tw-text-opacity: 1;
-  color: rgb(74 125 221 / var(--tw-text-opacity));
 }
 
 .text-blue-600 {

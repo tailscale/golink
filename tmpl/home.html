@@ -23,7 +23,7 @@
       </thead>
       <tbody>
       {{range .Clicks}}
-        <tr class="hover:bg-gray-100 border-b border-gray-200"><td><a class="block p-2 pr-8 hover:text-blue-500 hover:underline" href="http://go/{{.Short}}">go/{{.Short}}</a></td><td class="p-2">{{.NumClicks}}</td></tr>
+        <tr class="hover:bg-gray-100 border-b border-gray-200"><td><a class="block p-2 pr-8 hover:text-blue-500 hover:underline" href="/{{.Short}}">go/{{.Short}}</a></td><td class="p-2">{{.NumClicks}}</td></tr>
       {{end}}
       </tbody>
     </table>

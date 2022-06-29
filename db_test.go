@@ -8,46 +8,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-func Test_FileDB_linkPath(t *testing.T) {
-	tests := []struct {
-		short, want string
-	}{
-		{"foo", "foo"},
-		{"FOO", "foo"},
-		{"foo-bar", "foobar"},
-		{"foo.bar", "foo.bar"},
-		{"foo/bar", "foo%2Fbar"},
-	}
-
-	db := &FileDB{dir: "/tmp"}
-	for _, tt := range tests {
-		want := "/tmp/" + tt.want
-		if got := db.linkPath(tt.short); got != want {
-			t.Errorf("linkPath(%q) got %q, want %q", tt.short, got, want)
-		}
-	}
-}
-
-// Test saving and loading links for FileDB
-func Test_FileDB_SaveLoadLinks(t *testing.T) {
-	db, err := NewFileDB(t.TempDir(), false)
-	if err != nil {
-		t.Error(err)
-	}
-
-	testSaveAndLoadLinks(t, db)
-}
-
-// Test saving and loading stats for FileDB
-func Test_FileDB_SaveLoadStats(t *testing.T) {
-	db, err := NewFileDB(t.TempDir(), false)
-	if err != nil {
-		t.Error(err)
-	}
-
-	testSaveAndLoadStats(t, db)
-}
-
 // Test saving and loading links for SQLiteDB
 func Test_SQLiteDB_SaveLoadLinks(t *testing.T) {
 	db, err := NewSQLiteDB(path.Join(t.TempDir(), "links.db"))
@@ -55,20 +15,6 @@ func Test_SQLiteDB_SaveLoadLinks(t *testing.T) {
 		t.Error(err)
 	}
 
-	testSaveAndLoadLinks(t, db)
-}
-
-// Test saving and loading stats for SQLiteDB
-func Test_SQLiteDB_SaveLoadStats(t *testing.T) {
-	db, err := NewSQLiteDB(path.Join(t.TempDir(), "links.db"))
-	if err != nil {
-		t.Error(err)
-	}
-
-	testSaveAndLoadStats(t, db)
-}
-
-func testSaveAndLoadLinks(t *testing.T, db DB) {
 	links := []*Link{
 		{Short: "short", Long: "long"},
 		{Short: "Foo.Bar", Long: "long"},
@@ -101,7 +47,13 @@ func testSaveAndLoadLinks(t *testing.T, db DB) {
 	}
 }
 
-func testSaveAndLoadStats(t *testing.T, db DB) {
+// Test saving and loading stats for SQLiteDB
+func Test_SQLiteDB_SaveLoadStats(t *testing.T) {
+	db, err := NewSQLiteDB(path.Join(t.TempDir(), "links.db"))
+	if err != nil {
+		t.Error(err)
+	}
+
 	// preload some links
 	links := []*Link{
 		{Short: "a"},

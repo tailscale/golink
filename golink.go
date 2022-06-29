@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -30,11 +31,8 @@ import (
 
 var (
 	verbose    = flag.Bool("verbose", false, "be verbose")
-	linkDir    = flag.String("linkdir", "", "the directory to store one JSON file per go/ shortlink")
 	sqlitefile = flag.String("sqlitedb", "", "path of SQLite database to store links")
-	migrate    = flag.Bool("migrate-to-sqlite", false, "migrate link data from file storage to sqlite")
-	dev        = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set linkDir if empty and don't use tsnet")
-	doMkdir    = flag.Bool("mkdir", false, "whether to make --linkdir at start")
+	dev        = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
 )
 
 var stats struct {
@@ -52,17 +50,29 @@ var lastSnapshot []byte
 var embeddedFS embed.FS
 
 // db stores short links.
-var db DB
+var db *SQLiteDB
 
 var localClient *tailscale.LocalClient
 
 func main() {
 	flag.Parse()
 
+	if *sqlitefile == "" {
+		if devMode() {
+			tmpdir, err := ioutil.TempDir("", "golink_dev_*")
+			if err != nil {
+				log.Fatal(err)
+			}
+			*sqlitefile = filepath.Join(tmpdir, "golink.db")
+			log.Printf("Dev mode temp db: %s", *sqlitefile)
+		} else {
+			log.Fatalf("--sqlitedb is required")
+		}
+	}
+
 	var err error
-	db, err = setupDB()
-	if err != nil {
-		log.Fatalf("setting up database: %v", err)
+	if db, err = NewSQLiteDB(*sqlitefile); err != nil {
+		log.Fatalf("NewSQLiteDB(%q): %v", *sqlitefile, err)
 	}
 
 	if err := restoreLastSnapshot(); err != nil {
@@ -107,74 +117,6 @@ func main() {
 	log.Printf("Serving http://go/ ...")
 	if err := http.Serve(l80, nil); err != nil {
 		log.Fatal(err)
-	}
-}
-
-// setupDB returns a DB used for link storage based on CLI flags and migrates
-// data if requested.  If flags are provided for both sqlite and file-base
-// storage, sqlite is preferred.
-func setupDB() (DB, error) {
-	if *sqlitefile == "" && *linkDir == "" && !devMode() {
-		return nil, errors.New("must specify linkdir or sqlitedb")
-	}
-
-	var sqliteDB *SQLiteDB
-	if *sqlitefile != "" {
-		var err error
-		if sqliteDB, err = NewSQLiteDB(*sqlitefile); err != nil {
-			return nil, fmt.Errorf("NewSQLiteDB(%q): %w", *sqlitefile, err)
-		}
-		if !*migrate {
-			// not migrating data, so return early
-			return sqliteDB, nil
-		}
-	}
-
-	if *linkDir == "" && devMode() {
-		var err error
-		*linkDir, err = ioutil.TempDir("", "golink_dev_*")
-		if err != nil {
-			return nil, err
-		}
-		log.Printf("Dev mode temp dir: %s", *linkDir)
-	}
-
-	var fileDB *FileDB
-	if *linkDir != "" {
-		var err error
-		if fileDB, err = NewFileDB(*linkDir, *doMkdir); err != nil {
-			return nil, fmt.Errorf("NewFileDB(%q): %w", *linkDir, err)
-		}
-	}
-
-	if *migrate {
-		if sqliteDB == nil || fileDB == nil {
-			return nil, errors.New("migrate-to-sqlite requires both linkdir and sqlitedb to be specified")
-		}
-
-		links, err := fileDB.LoadAll()
-		if err != nil {
-			return nil, err
-		}
-		for _, link := range links {
-			if err := sqliteDB.Save(link); err != nil {
-				return nil, err
-			}
-		}
-
-		stats, err := fileDB.LoadStats()
-		if err != nil {
-			return nil, err
-		}
-		if err := sqliteDB.SaveStats(stats); err != nil {
-			return nil, err
-		}
-	}
-
-	if sqliteDB != nil {
-		return sqliteDB, nil
-	} else {
-		return fileDB, nil
 	}
 }
 

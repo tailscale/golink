@@ -1,0 +1,50 @@
+{{ define "main" }}
+   <h2 class="text-xl font-bold pb-2">Link Details</h2>
+
+    {{ if .Editable }}
+    <form method="POST" action="/">
+      <div class="flex flex-wrap">
+        <div class="flex">
+          <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://go/</label>
+          <input id=short name=short required type=text size=15 placeholder="shortname" value="{{.Link.Short}}"{{if not .Editable}} disabled{{end}} pattern="\w[\w\-\.]*" title="Must start with letter or number; may contain letters, numbers, dashes, and periods."
+            class="p-2 my-2 rounded-r-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
+          <span class="flex m-2 items-center">&rarr;</span>
+        </div>
+        <input name=long required type=text size=40 placeholder="https://destination-url" value="{{.Link.Long}}"{{if not .Editable}} disabled{{end}} class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
+      </div>
+
+      <p class="text-sm text-gray-500"><a class="text-blue-600 hover:underline" href="/.help">Help and advanced options</a></p>
+
+      <label for=owner class="text-sm font-bold block mt-4">Owner</label>
+      <input id=owner name=owner required type=text size=25 placeholder="Owner" value="{{.Link.Owner}}"{{if not .Editable}} disabled{{end}} class="p-2 rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
+
+      <dl>
+        <dt class="text-sm font-bold mt-6">Date Created</dt>
+        <dd>{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+
+        <dt class="text-sm font-bold mt-6">Date Last Edited</dt>
+        <dd>{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+      </dl>
+
+      <button type=submit class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Update</button>
+    </form>
+
+    {{ else }}
+    <dl>
+      <dt class="text-sm font-bold mt-6">Name</dt>
+      <dd><a class="text-blue-600 hover:underline" href="/{{.Link.Short}}">go/{{.Link.Short}}</a></dd>
+
+      <dt class="text-sm font-bold mt-6">Destination</dt>
+      <dd>{{.Link.Long}}</dd>
+
+      <dt class="text-sm font-bold mt-6">Owner</dt>
+      <dd>{{.Link.Owner}}</dd>
+
+      <dt class="text-sm font-bold mt-6">Date Created</dt>
+      <dd>{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+
+      <dt class="text-sm font-bold mt-6">Date Last Edited</dt>
+      <dd>{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+    </dl>
+    {{ end }}
+{{ end }}

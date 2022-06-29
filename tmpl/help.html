@@ -98,7 +98,7 @@ There is no formal API, but many endpoints lend themselves to programmatic acces
 <p>
 Include a "+" after a link to get information about a link without resolving it:
 
-<pre>{{`$ curl go/search+
+<pre>{{`$ curl -L go/search+
 {
 "Short": "search",
 "Long": "https://cloudsearch.google.com/{{if .Path}}cloudsearch/search?q={{QueryEscape .Path}}{{end}}",

@@ -76,6 +76,7 @@ func main() {
 	go flushStatsLoop()
 
 	http.HandleFunc("/", serveGo)
+	http.HandleFunc("/.detail/", serveDetail)
 	http.HandleFunc("/.export", serveExport)
 	http.HandleFunc("/.help", serveHelp)
 	http.Handle("/_/export", http.RedirectHandler("/.export", http.StatusMovedPermanently))
@@ -177,15 +178,20 @@ func setupDB() (DB, error) {
 	}
 }
 
-// homeTmpl is the template used by the http://go/ index page where you can
-// create or edit links.
-var homeTmpl *template.Template
+var (
+	// homeTmpl is the template used by the http://go/ index page where you can
+	// create or edit links.
+	homeTmpl *template.Template
 
-// helpTmpl is the template used by the http://go/.help page
-var helpTmpl *template.Template
+	// detailTmpl is the template used by the link detail page to view or edit links.
+	detailTmpl *template.Template
 
-// successTmpl is the template used when a link is successfully created or updated.
-var successTmpl *template.Template
+	// successTmpl is the template used when a link is successfully created or updated.
+	successTmpl *template.Template
+
+	// helpTmpl is the template used by the http://go/.help page
+	helpTmpl *template.Template
+)
 
 type visitData struct {
 	Short     string
@@ -200,8 +206,9 @@ type homeData struct {
 
 func init() {
 	homeTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/home.html"))
-	helpTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/help.html"))
+	detailTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/detail.html"))
 	successTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/success.html"))
+	helpTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/help.html"))
 }
 
 // initStats initializes the in-memory stats counter with counts from db.
@@ -287,10 +294,10 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 
 	short, remainder, _ := strings.Cut(strings.TrimPrefix(r.RequestURI, "/"), "/")
 
-	var serveInfo bool
+	// redirect {name}+ links to /.detail/{name}
 	if strings.HasSuffix(short, "+") {
-		serveInfo = true
-		short = strings.TrimSuffix(short, "+")
+		http.Redirect(w, r, "/.detail/"+strings.TrimSuffix(short, "+"), http.StatusFound)
+		return
 	}
 
 	link, err := db.Load(short)
@@ -301,17 +308,6 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("serving %q: %v", short, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if serveInfo {
-		j, err := json.MarshalIndent(link, "", "  ")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(j)
 		return
 	}
 
@@ -333,6 +329,59 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// acceptHTML returns whether the request can accept a text/html response.
+func acceptHTML(r *http.Request) bool {
+	return strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html")
+}
+
+// detailData is the data used by the detailTmpl template.
+type detailData struct {
+	// Editable indicates whether the current user can edit the link.
+	Editable bool
+	Link     *Link
+}
+
+func serveDetail(w http.ResponseWriter, r *http.Request) {
+	short := strings.TrimPrefix(r.RequestURI, "/.detail/")
+
+	link, err := db.Load(short)
+	if errors.Is(err, fs.ErrNotExist) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		log.Printf("serving detail %q: %v", short, err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if !acceptHTML(r) {
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		enc.Encode(link)
+		return
+	}
+
+	login, err := currentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	ownerExists, err := userExists(r.Context(), link.Owner)
+	if err != nil {
+		log.Printf("looking up tailnet user %q: %v", link.Owner, err)
+	}
+
+	data := detailData{Link: link}
+	if link.Owner == login || !ownerExists {
+		data.Editable = true
+		data.Link.Owner = login
+	}
+
+	detailTmpl.Execute(w, data)
 }
 
 type expandEnv struct {
@@ -435,7 +484,11 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	link, err := db.Load(short)
-	if err == nil && link.Owner != "" && link.Owner != login {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	if link != nil && link.Owner != "" && link.Owner != login {
 		exists, err := userExists(r.Context(), link.Owner)
 		if err != nil {
 			log.Printf("looking up tailnet user %q: %v", link.Owner, err)
@@ -448,6 +501,21 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// allow transferring ownership to valid users. If empty, set owner to current user.
+	owner := r.FormValue("owner")
+	if owner != "" {
+		exists, err := userExists(r.Context(), owner)
+		if err != nil {
+			log.Printf("looking up tailnet user %q: %v", link.Owner, err)
+		}
+		if !exists {
+			http.Error(w, "new owner not a valid user: "+owner, http.StatusBadRequest)
+			return
+		}
+	} else {
+		owner = login
+	}
+
 	now := time.Now().UTC()
 	if link == nil {
 		link = &Link{
@@ -458,13 +526,13 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	link.Short = short
 	link.Long = long
 	link.LastEdit = now
-	link.Owner = login
+	link.Owner = owner
 	if err := db.Save(link); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html") {
+	if acceptHTML(r) {
 		successTmpl.Execute(w, homeData{Short: short})
 	} else {
 		w.Header().Set("Content-Type", "application/json")

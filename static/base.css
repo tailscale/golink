@@ -1079,6 +1079,10 @@ select {
   margin-bottom: 0;
 }
 
+.invisible {
+  visibility: hidden;
+}
+
 .absolute {
   position: absolute;
 }
@@ -1260,8 +1264,8 @@ select {
   padding-top: 1.5rem;
 }
 
-.pr-8 {
-  padding-right: 2rem;
+.pr-4 {
+  padding-right: 1rem;
 }
 
 .text-left {
@@ -1358,6 +1362,10 @@ select {
   background-color: rgb(246 244 242 / var(--tw-bg-opacity));
 }
 
+.hover\:fill-blue-500:hover {
+  fill: #4a7ddd;
+}
+
 .hover\:text-blue-500:hover {
   --tw-text-opacity: 1;
   color: rgb(74 125 221 / var(--tw-text-opacity));
@@ -1371,4 +1379,8 @@ select {
 .disabled\:bg-gray-100:disabled {
   --tw-bg-opacity: 1;
   background-color: rgb(246 244 242 / var(--tw-bg-opacity));
+}
+
+.group:hover .group-hover\:visible {
+  visibility: visible;
 }

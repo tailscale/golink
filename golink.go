@@ -387,6 +387,10 @@ func currentUser(r *http.Request) (string, error) {
 
 // userExists returns whether a user exists with the specified login in the current tailnet.
 func userExists(ctx context.Context, login string) (bool, error) {
+	if devMode() {
+		// in dev mode, just assume the user exists
+		return true, nil
+	}
 	st, err := localClient.Status(ctx)
 	if err != nil {
 		return false, err

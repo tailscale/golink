@@ -3,7 +3,7 @@
 set -e
 set -x
 
-export PATH="$PWD/../../tool":$PATH
+export PATH="$(dirname "$0")/../../tool":$PATH
 
 go run github.com/tailscale/mkctr \
   --target="flyio" \

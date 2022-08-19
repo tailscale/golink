@@ -1,5 +1,5 @@
 // The golink server runs http://go/, a private shortlink service for tailnets.
-package main
+package golink
 
 import (
 	"bufio"
@@ -43,8 +43,9 @@ var stats struct {
 	dirty ClickStats
 }
 
-//go:embed link-snapshot.json
-var lastSnapshot []byte
+// LastSnapshot is the data snapshot (as returned by the /.export handler)
+// that will be loaded on startup.
+var LastSnapshot []byte
 
 //go:embed static tmpl/*.html
 var embeddedFS embed.FS
@@ -54,25 +55,25 @@ var db *SQLiteDB
 
 var localClient *tailscale.LocalClient
 
-func main() {
+func Run() error {
 	flag.Parse()
 
 	if *sqlitefile == "" {
 		if devMode() {
 			tmpdir, err := ioutil.TempDir("", "golink_dev_*")
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			*sqlitefile = filepath.Join(tmpdir, "golink.db")
 			log.Printf("Dev mode temp db: %s", *sqlitefile)
 		} else {
-			log.Fatalf("--sqlitedb is required")
+			return errors.New("--sqlitedb is required")
 		}
 	}
 
 	var err error
 	if db, err = NewSQLiteDB(*sqlitefile); err != nil {
-		log.Fatalf("NewSQLiteDB(%q): %v", *sqlitefile, err)
+		return fmt.Errorf("NewSQLiteDB(%q): %w", *sqlitefile, err)
 	}
 
 	if err := restoreLastSnapshot(); err != nil {
@@ -105,19 +106,20 @@ func main() {
 		srv.Logf = log.Printf
 	}
 	if err := srv.Start(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	localClient, _ = srv.LocalClient()
 
 	l80, err := srv.Listen("tcp", ":80")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	log.Printf("Serving http://go/ ...")
 	if err := http.Serve(l80, nil); err != nil {
-		log.Fatal(err)
+		return err
 	}
+	return nil
 }
 
 var (
@@ -520,7 +522,7 @@ func serveExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func restoreLastSnapshot() error {
-	bs := bufio.NewScanner(bytes.NewReader(lastSnapshot))
+	bs := bufio.NewScanner(bytes.NewReader(LastSnapshot))
 	var restored int
 	for bs.Scan() {
 		link := new(Link)

@@ -5,7 +5,9 @@ go 1.19
 require (
 	github.com/google/go-cmp v0.5.9
 	modernc.org/sqlite v1.19.4
-	tailscale.com v1.32.2
+	// Always use a pseudo-version for the tailscale.com module, or else
+	// go's version selection causes problems when pulling golink into corp.
+	tailscale.com v1.1.1-0.20221106050213-036334e91350
 )
 
 require (
@@ -48,7 +50,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 // indirect
 	github.com/tailscale/certstore v0.1.1-0.20220316223106-78d6e1c49d8d // indirect
-	github.com/tailscale/golang-x-crypto v0.0.0-20221009170451-62f465106986 // indirect
+	github.com/tailscale/golang-x-crypto v0.0.0-20221102133106-bc99ab8c2d17 // indirect
 	github.com/tailscale/goupnp v1.0.1-0.20210804011211-c64d0f06ea05 // indirect
 	github.com/tailscale/netlink v1.1.1-0.20211101221916-cabfb018fe85 // indirect
 	github.com/tcnksm/go-httpstat v0.2.0 // indirect

@@ -8,11 +8,7 @@ import (
 	"github.com/tailscale/golink"
 )
 
-//go:embed link-snapshot.json
-var lastSnapshot []byte
-
 func main() {
-	golink.LastSnapshot = lastSnapshot
 	if err := golink.Run(); err != nil {
 		log.Fatal(err)
 	}

@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -33,6 +34,7 @@ var (
 	verbose    = flag.Bool("verbose", false, "be verbose")
 	sqlitefile = flag.String("sqlitedb", "", "path of SQLite database to store links")
 	dev        = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
+	snapshot   = flag.String("snapshot", "", "file path of snapshot file")
 )
 
 var stats struct {
@@ -76,6 +78,17 @@ func Run() error {
 		return fmt.Errorf("NewSQLiteDB(%q): %w", *sqlitefile, err)
 	}
 
+	if *snapshot != "" {
+		if LastSnapshot != nil {
+			log.Printf("LastSnapshot already set; ignoring --snapshot")
+		} else {
+			var err error
+			LastSnapshot, err = os.ReadFile(*snapshot)
+			if err != nil {
+				log.Fatalf("error reading snapshot file %q: %v", *snapshot, err)
+			}
+		}
+	}
 	if err := restoreLastSnapshot(); err != nil {
 		log.Printf("restoring snapshot: %v", err)
 	}

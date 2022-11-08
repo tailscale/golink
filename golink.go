@@ -1,3 +1,6 @@
+// Copyright 2022 Tailscale Inc & Contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
 // The golink server runs http://go/, a private shortlink service for tailnets.
 package golink
 

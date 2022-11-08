@@ -1,3 +1,6 @@
+// Copyright 2022 Tailscale Inc & Contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
 package golink
 
 import (

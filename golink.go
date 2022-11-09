@@ -221,15 +221,15 @@ func serveHome(w http.ResponseWriter, short string) {
 	}
 	stats.mu.Unlock()
 
-	if len(clicks) > 200 {
-		clicks = clicks[:200]
-	}
 	sort.Slice(clicks, func(i, j int) bool {
 		if clicks[i].NumClicks != clicks[j].NumClicks {
 			return clicks[i].NumClicks > clicks[j].NumClicks
 		}
 		return clicks[i].Short < clicks[j].Short
 	})
+	if len(clicks) > 200 {
+		clicks = clicks[:200]
+	}
 
 	homeTmpl.Execute(w, homeData{
 		Short:  short,

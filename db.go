@@ -24,7 +24,6 @@ type Link struct {
 	Created  time.Time
 	LastEdit time.Time // when the link was last edited
 	Owner    string    // user@domain
-	Clicks   int       `json:",omitempty"` // number of times this link has been served
 }
 
 // ClickStats is the number of clicks a set of links have received in a given

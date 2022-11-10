@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	texttemplate "text/template"
@@ -106,7 +105,6 @@ func Run() error {
 	http.HandleFunc("/.detail/", serveDetail)
 	http.HandleFunc("/.export", serveExport)
 	http.HandleFunc("/.help", serveHelp)
-	http.Handle("/_/export", http.RedirectHandler("/.export", http.StatusMovedPermanently))
 	http.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
 	if *dev != "" {
@@ -237,7 +235,7 @@ func serveHome(w http.ResponseWriter, short string) {
 	})
 }
 
-func serveHelp(w http.ResponseWriter, r *http.Request) {
+func serveHelp(w http.ResponseWriter, _ *http.Request) {
 	helpTmpl.Execute(w, nil)
 }
 
@@ -507,15 +505,10 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 // serveExport prints a snapshot of the link database. Links are JSON encoded
 // and printed one per line. This format is used to restore link snapshots on
 // startup.
-func serveExport(w http.ResponseWriter, r *http.Request) {
+func serveExport(w http.ResponseWriter, _ *http.Request) {
 	if err := flushStats(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	includeClicks := true
-	if v := r.FormValue("clicks"); v != "" {
-		includeClicks, _ = strconv.ParseBool(v)
 	}
 
 	links, err := db.LoadAll()
@@ -528,9 +521,6 @@ func serveExport(w http.ResponseWriter, r *http.Request) {
 	})
 	encoder := json.NewEncoder(w)
 	for _, link := range links {
-		if !includeClicks {
-			link.Clicks = 0
-		}
 		if err := encoder.Encode(link); err != nil {
 			panic(http.ErrAbortHandler)
 		}

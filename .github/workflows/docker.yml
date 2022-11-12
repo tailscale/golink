@@ -4,12 +4,13 @@ on:
   push:
     branches: [ 'main' ]
     tags: [ 'v*' ]
+    workflow_dispatch:
   pull_request:
     branches: [ 'main' ]
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: tailscale/tailscale
 
 jobs:
   build-and-push-image:

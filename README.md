@@ -92,9 +92,9 @@ destination="/root"
   Then run the commands with the [flyctl CLI].
 
   ``` sh
-  $ flyctl create app FLY_APP_NAME
+  $ flyctl apps create FLY_APP_NAME
   $ flyctl volumes create FLY_VOLUME_NAME
-  $ flyctl secrets create TS_AUTHKEY=tskey-auth-<key>
+  $ flyctl secrets set TS_AUTHKEY=tskey-auth-<key>
   $ flyctl deploy
   ```
 

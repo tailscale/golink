@@ -37,6 +37,7 @@ var (
 	sqlitefile = flag.String("sqlitedb", "", "path of SQLite database to store links")
 	dev        = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
 	snapshot   = flag.String("snapshot", "", "file path of snapshot file")
+	hostname   = flag.String("hostname", "go", "service name (defaults to 'go')")
 )
 
 var stats struct {
@@ -112,8 +113,12 @@ func Run() error {
 		log.Fatal(http.ListenAndServe(*dev, nil))
 	}
 
+	if *hostname == "" {
+		return errors.New("--hostname, if specified, cannot be empty")
+	}
+
 	srv := &tsnet.Server{
-		Hostname: "go",
+		Hostname: *hostname,
 		Logf:     func(format string, args ...any) {},
 	}
 	if *verbose {
@@ -129,7 +134,7 @@ func Run() error {
 		return err
 	}
 
-	log.Printf("Serving http://go/ ...")
+	log.Printf("Serving http://%s/ ...", *hostname)
 	if err := http.Serve(l80, nil); err != nil {
 		return err
 	}
@@ -353,7 +358,7 @@ type expandEnv struct {
 var expandFuncMap = texttemplate.FuncMap{
 	"PathEscape":  url.PathEscape,
 	"QueryEscape": url.QueryEscape,
-	"TrimSuffix": strings.TrimSuffix,
+	"TrimSuffix":  strings.TrimSuffix,
 }
 
 // expandLink returns the expanded long URL to redirect to, executing any

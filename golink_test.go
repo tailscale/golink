@@ -68,6 +68,12 @@ func TestExpandLink(t *testing.T) {
 			remainder: "a+b",
 			want:      "http://host.com/a%2Bb",
 		},
+		{
+			name:      "template-with-trimsuffix-func",
+			long:      `http://host.com/{{TrimSuffix .Path "/"}}`,
+			remainder: "a/",
+			want:      "http://host.com/a",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

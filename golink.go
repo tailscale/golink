@@ -353,6 +353,7 @@ type expandEnv struct {
 var expandFuncMap = texttemplate.FuncMap{
 	"PathEscape":  url.PathEscape,
 	"QueryEscape": url.QueryEscape,
+	"TrimSuffix": strings.TrimSuffix,
 }
 
 // expandLink returns the expanded long URL to redirect to, executing any

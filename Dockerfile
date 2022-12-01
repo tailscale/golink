@@ -11,8 +11,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -v ./cmd/golink
 
 FROM cgr.dev/chainguard/static:latest
 
-ENV HOME /root
+ENV HOME /home/nonroot
 
 COPY --from=build /work/golink /golink
 ENTRYPOINT ["/golink"]
-CMD ["--sqlitedb", "/root/golink.db", "--verbose"]
+CMD ["--sqlitedb", "/home/nonroot/golink.db", "--verbose"]

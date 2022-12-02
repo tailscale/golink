@@ -37,7 +37,7 @@ var (
 	sqlitefile = flag.String("sqlitedb", "", "path of SQLite database to store links")
 	dev        = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
 	snapshot   = flag.String("snapshot", "", "file path of snapshot file")
-	hostname   = flag.String("hostname", "go", "service name (defaults to 'go')")
+	hostname   = flag.String("hostname", "go", "service name")
 )
 
 var stats struct {

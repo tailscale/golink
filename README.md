@@ -62,7 +62,9 @@ Two pieces of data should be on persistent volumes:
 
 In the docker image, both are stored in `/root`, so you can mount a persistent volume at /root:
 
-    docker run -v /persistant/data:/root ghcr.io/tailscale/golink:main
+    docker run -v /persistant/data:/root ghcr.io/tailscale/golink:main \
+        --sqlitedb /root/golink.db \
+        --verbose
 
 No ports need to be exposed, whether running as a binary or in docker.
 golink will listen on port 80 on the tailscale interface, so can be accessed at http://go/.

@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -32,12 +33,14 @@ import (
 	"tailscale.com/tsnet"
 )
 
+const defaultHostname = "go"
+
 var (
 	verbose    = flag.Bool("verbose", false, "be verbose")
 	sqlitefile = flag.String("sqlitedb", "", "path of SQLite database to store links")
 	dev        = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
 	snapshot   = flag.String("snapshot", "", "file path of snapshot file")
-	hostname   = flag.String("hostname", "go", "service name")
+	hostname   = flag.String("hostname", defaultHostname, "service name")
 )
 
 var stats struct {
@@ -52,7 +55,7 @@ var stats struct {
 // that will be loaded on startup.
 var LastSnapshot []byte
 
-//go:embed static tmpl/*.html
+//go:embed static tmpl/*.html tmpl/*.xml
 var embeddedFS embed.FS
 
 // db stores short links.
@@ -106,9 +109,20 @@ func Run() error {
 	http.HandleFunc("/.detail/", serveDetail)
 	http.HandleFunc("/.export", serveExport)
 	http.HandleFunc("/.help", serveHelp)
+	http.HandleFunc("/.opensearch", serveOpenSearch)
 	http.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
 	if *dev != "" {
+		// override default hostname for dev mode
+		if *hostname == defaultHostname {
+			if h, p, err := net.SplitHostPort(*dev); err == nil {
+				if h == "" {
+					h = "localhost"
+				}
+				*hostname = fmt.Sprintf("%s:%s", h, p)
+			}
+		}
+
 		log.Printf("Running in dev mode on %s ...", *dev)
 		log.Fatal(http.ListenAndServe(*dev, nil))
 	}
@@ -154,6 +168,9 @@ var (
 
 	// helpTmpl is the template used by the http://go/.help page
 	helpTmpl *template.Template
+
+	// opensearchTmpl is the template used by the http://go/.opensearch page
+	opensearchTmpl *template.Template
 )
 
 type visitData struct {
@@ -172,6 +189,7 @@ func init() {
 	detailTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/detail.html"))
 	successTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/success.html"))
 	helpTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/help.html"))
+	opensearchTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/opensearch.xml"))
 }
 
 // initStats initializes the in-memory stats counter with counts from db.
@@ -242,6 +260,15 @@ func serveHome(w http.ResponseWriter, short string) {
 
 func serveHelp(w http.ResponseWriter, _ *http.Request) {
 	helpTmpl.Execute(w, nil)
+}
+
+func serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
+	type opensearchData struct {
+		Hostname string
+	}
+
+	w.Header().Set("Content-Type", "application/opensearchdescription+xml")
+	opensearchTmpl.Execute(w, opensearchData{Hostname: *hostname})
 }
 
 func serveGo(w http.ResponseWriter, r *http.Request) {

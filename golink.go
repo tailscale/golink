@@ -344,6 +344,10 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 		data.Link.Owner = login
 	}
 
+	if link.GloballyEditable {
+		data.Editable = true
+	}
+
 	detailTmpl.Execute(w, data)
 }
 
@@ -456,7 +460,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
-	if link != nil && link.Owner != "" && link.Owner != login {
+	if link != nil && link.Owner != "" && link.Owner != login && !link.GloballyEditable {
 		exists, err := userExists(r.Context(), link.Owner)
 		if err != nil {
 			log.Printf("looking up tailnet user %q: %v", link.Owner, err)
@@ -484,6 +488,8 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		owner = login
 	}
 
+	globallyEditable := r.FormValue("globally-editable") == "on"
+
 	now := time.Now().UTC()
 	if link == nil {
 		link = &Link{
@@ -495,6 +501,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	link.Long = long
 	link.LastEdit = now
 	link.Owner = owner
+	link.GloballyEditable = globallyEditable
 	if err := db.Save(link); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

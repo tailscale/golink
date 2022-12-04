@@ -19,11 +19,12 @@ import (
 
 // Link is the structure stored for each go short link.
 type Link struct {
-	Short    string // the "foo" part of http://go/foo
-	Long     string // the target URL or text/template pattern to run
-	Created  time.Time
-	LastEdit time.Time // when the link was last edited
-	Owner    string    // user@domain
+	Short            string // the "foo" part of http://go/foo
+	Long             string // the target URL or text/template pattern to run
+	Created          time.Time
+	LastEdit         time.Time // when the link was last edited
+	Owner            string    // user@domain
+	GloballyEditable bool      // when set, link is editable by everyone on the tailnet
 }
 
 // ClickStats is the number of clicks a set of links have received in a given
@@ -67,14 +68,14 @@ func NewSQLiteDB(f string) (*SQLiteDB, error) {
 // The caller owns the returned values.
 func (s *SQLiteDB) LoadAll() ([]*Link, error) {
 	var links []*Link
-	rows, err := s.db.Query("SELECT Short, Long, Created, LastEdit, Owner FROM Links")
+	rows, err := s.db.Query("SELECT Short, Long, Created, LastEdit, Owner, GloballyEditable FROM Links")
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		link := new(Link)
 		var created, lastEdit int64
-		err := rows.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner)
+		err := rows.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner, &link.GloballyEditable)
 		if err != nil {
 			return nil, err
 		}
@@ -93,8 +94,8 @@ func (s *SQLiteDB) LoadAll() ([]*Link, error) {
 func (s *SQLiteDB) Load(short string) (*Link, error) {
 	link := new(Link)
 	var created, lastEdit int64
-	row := s.db.QueryRow("SELECT Short, Long, Created, LastEdit, Owner FROM Links WHERE ID = ?1 LIMIT 1", linkID(short))
-	err := row.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner)
+	row := s.db.QueryRow("SELECT Short, Long, Created, LastEdit, Owner, GloballyEditable FROM Links WHERE ID = ?1 LIMIT 1", linkID(short))
+	err := row.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner, &link.GloballyEditable)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			err = fs.ErrNotExist
@@ -108,7 +109,7 @@ func (s *SQLiteDB) Load(short string) (*Link, error) {
 
 // Save saves a Link.
 func (s *SQLiteDB) Save(link *Link) error {
-	result, err := s.db.Exec("INSERT OR REPLACE INTO Links (ID, Short, Long, Created, LastEdit, Owner) VALUES (?, ?, ?, ?, ?, ?)", linkID(link.Short), link.Short, link.Long, link.Created.Unix(), link.LastEdit.Unix(), link.Owner)
+	result, err := s.db.Exec("INSERT OR REPLACE INTO Links (ID, Short, Long, Created, LastEdit, Owner, GloballyEditable) VALUES (?, ?, ?, ?, ?, ?, ?)", linkID(link.Short), link.Short, link.Long, link.Created.Unix(), link.LastEdit.Unix(), link.Owner, link.GloballyEditable)
 	if err != nil {
 		return err
 	}

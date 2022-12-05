@@ -20,7 +20,10 @@ storing links in a temporary database, and will not attempt to join a tailnet.
 
 The equivalent using the pre-built docker image:
 
-    docker run -it --rm -p 8080:8080 -v /tmp/golink:/root ghcr.io/tailscale/golink:main -dev-listen :8080
+    docker run -it --rm -p 8080:8080 ghcr.io/tailscale/golink:main -dev-listen :8080
+
+If you receive the docker error `unable to open database file: out of memory (14)`,
+use a persistent volume as documented in [Running in production](#running-in-production).
 
 ## Joining a tailnet
 
@@ -60,9 +63,13 @@ Two pieces of data should be on persistent volumes:
  - tailscale data files in the `tsnet-golink` directory inside [os.UserConfigDir]
  - the sqlite database file where links are stored
 
-In the docker image, both are stored in `/root`, so you can mount a persistent volume at /root:
+In the docker image, both are stored in `/home/nonroot`, so you can mount a persistent volume:
 
-    docker run -v /persistant/data:/root ghcr.io/tailscale/golink:main
+    docker run -v /persistant/data:/home/nonroot ghcr.io/tailscale/golink:main
+
+The mounted directory will need to be writable by the nonroot user (uid: 65532, gid: 65532),
+for example by calling `sudo chown 65532 /persistent/data`.
+Alternatively, you can run golink as root using `docker run -u root`.
 
 No ports need to be exposed, whether running as a binary or in docker.
 golink will listen on port 80 on the tailscale interface, so can be accessed at http://go/.

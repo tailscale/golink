@@ -87,3 +87,60 @@ func TestExpandLink(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveLink(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Save(&Link{Short: "meet", Long: "https://meet.google.com/lookup/"})
+	db.Save(&Link{Short: "cs", Long: "http://codesearch/{{with .Path}}search?q={{.}}{{end}}"})
+
+	tests := []struct {
+		link string
+		want string
+	}{
+		{
+			link: "meet",
+			want: "https://meet.google.com/lookup/",
+		},
+		{
+			link: "meet/foo",
+			want: "https://meet.google.com/lookup/foo",
+		},
+		{
+			link: "go/meet/foo",
+			want: "https://meet.google.com/lookup/foo",
+		},
+		{
+			link: "http://go/meet/foo",
+			want: "https://meet.google.com/lookup/foo",
+		},
+		{
+			// if absolute URL provided, host doesn't actually matter
+			link: "http://mygo/meet/foo",
+			want: "https://meet.google.com/lookup/foo",
+		},
+		{
+			link: "cs",
+			want: "http://codesearch/",
+		},
+		{
+			link: "cs/term",
+			want: "http://codesearch/search?q=term",
+		},
+	}
+	for _, tt := range tests {
+		name := "golink " + tt.link
+		t.Run(name, func(t *testing.T) {
+			got, err := resolveLink(tt.link)
+			if err != nil {
+				t.Error(err)
+			}
+			if got != tt.want {
+				t.Errorf("ResolveLink(%q) = %q; want %q", tt.link, got, tt.want)
+			}
+		})
+	}
+}

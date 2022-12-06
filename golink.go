@@ -36,11 +36,12 @@ import (
 const defaultHostname = "go"
 
 var (
-	verbose    = flag.Bool("verbose", false, "be verbose")
-	sqlitefile = flag.String("sqlitedb", "", "path of SQLite database to store links")
-	dev        = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
-	snapshot   = flag.String("snapshot", "", "file path of snapshot file")
-	hostname   = flag.String("hostname", defaultHostname, "service name")
+	verbose           = flag.Bool("verbose", false, "be verbose")
+	sqlitefile        = flag.String("sqlitedb", "", "path of SQLite database to store links")
+	dev               = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
+	snapshot          = flag.String("snapshot", "", "file path of snapshot file")
+	hostname          = flag.String("hostname", defaultHostname, "service name")
+	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 )
 
 var stats struct {
@@ -65,6 +66,16 @@ var localClient *tailscale.LocalClient
 
 func Run() error {
 	flag.Parse()
+
+	// if resolving from backup, set sqlitefile and snapshot flags to
+	// restore links into an in-memory sqlite database.
+	if *resolveFromBackup != "" {
+		*sqlitefile = ":memory:"
+		snapshot = resolveFromBackup
+		if flag.NArg() != 1 {
+			log.Fatal("--resolve-from-backup also requires a link to be resolved")
+		}
+	}
 
 	if *sqlitefile == "" {
 		if devMode() {
@@ -100,6 +111,16 @@ func Run() error {
 	}
 	if err := initStats(); err != nil {
 		log.Printf("initializing stats: %v", err)
+	}
+
+	// if link specified on command line, resolve and exit
+	if flag.NArg() > 0 {
+		destination, err := resolveLink(flag.Arg(0))
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(destination)
+		os.Exit(0)
 	}
 
 	// flush stats periodically
@@ -587,4 +608,20 @@ func restoreLastSnapshot() error {
 		log.Printf("Restored %v links.", restored)
 	}
 	return bs.Err()
+}
+
+func resolveLink(link string) (string, error) {
+	// if link specified as "go/name", trim "go" prefix.
+	// Remainder will parse as URL with no scheme or host
+	link = strings.TrimPrefix(link, *hostname)
+	u, err := url.Parse(link)
+	if err != nil {
+		return "", err
+	}
+	short, remainder, _ := strings.Cut(strings.TrimPrefix(u.RequestURI(), "/"), "/")
+	l, err := db.Load(short)
+	if err != nil {
+		return "", err
+	}
+	return expandLink(l.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
 }

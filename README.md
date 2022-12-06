@@ -120,3 +120,7 @@ Only links that don't already exist in the database will be added.
     golink -snapshot links.json
 
 [JSON lines]: https://jsonlines.org/
+
+You can also resolve links locally using a snapshot file:
+
+    golink -resolve-from-backup links.json go/link

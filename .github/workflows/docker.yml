@@ -2,14 +2,21 @@ name: Docker
 
 on:
   push:
+    # push events will publish a new image, so only trigger on main branch or semver tags.
     branches: [ 'main' ]
     tags: [ 'v*' ]
   pull_request:
+    # Run the workflow on pull_request events to ensure we can still build the image.
+    # We only publish the image on push events (see if statements in steps below).
     branches: [ 'main' ]
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+
+concurrency:
+  group: ${{ github.workflow }}-$${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   build-and-push-image:
@@ -27,7 +34,7 @@ jobs:
 
     - name: Log into registry ${{ env.REGISTRY }}
       uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a # v2.1.0
-      if: github.event_name != 'pull_request'
+      if: github.event_name == 'push'
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
@@ -44,16 +51,17 @@ jobs:
       uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5 # v3.2.0
       with:
         context: .
-        push: ${{ github.event_name != 'pull_request' }}
+        push: ${{ github.event_name == 'push' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
 
     # Sign the Docker image
     - name: Install cosign
-      if: github.event_name != 'pull_request'
+      if: github.event_name == 'push'
       uses: sigstore/cosign-installer@9becc617647dfa20ae7b1151972e9b3a2c338a2b #v2.8.1
     - name: Sign the published Docker image
-      if: github.event_name != 'pull_request'
+      if: github.event_name == 'push'
       env:
         COSIGN_EXPERIMENTAL: "true"
       run: cosign sign ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}

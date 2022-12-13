@@ -60,7 +60,7 @@ func Test_SQLiteDB_SaveLoadStats(t *testing.T) {
 	// preload some links
 	links := []*Link{
 		{Short: "a"},
-		{Short: "b"},
+		{Short: "B-c"},
 	}
 	for _, link := range links {
 		if err := db.Save(link); err != nil {
@@ -68,15 +68,17 @@ func Test_SQLiteDB_SaveLoadStats(t *testing.T) {
 		}
 	}
 
-	// stats to record and then retrieve
+	// Stats to record and then retrieve.
+	// Stats to store do not need to be their canonical short name,
+	// but returned stats always should be.
 	stats := []ClickStats{
 		{"a": 1},
-		{"b": 1},
-		{"a": 1, "b": 2},
+		{"b-c": 1},
+		{"a": 1, "bc": 2},
 	}
 	want := ClickStats{
-		"a": 2,
-		"b": 3,
+		"a":   2,
+		"B-c": 3,
 	}
 
 	for _, s := range stats {

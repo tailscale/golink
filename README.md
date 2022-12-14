@@ -4,6 +4,7 @@
 
 golink is a private shortlink service for your [tailnet].
 It lets you create short, memorable links for the websites you and your team use most.
+If you're new to golink, learn more in our [announcement blog post](https://tailscale.com/blog/golink/).
 
 [tailnet]: https://tailscale.com/kb/1136/tailnet/
 

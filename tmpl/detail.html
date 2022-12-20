@@ -11,6 +11,7 @@
           <span class="flex m-2 items-center">&rarr;</span>
         </div>
         <input name=long required type=text size=40 placeholder="https://destination-url" value="{{.Link.Long}}"{{if not .Editable}} disabled{{end}} class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
+        <input name="desc" required type="text" size="40" placeholder="Description" value="{{.Link.Desc}}"{{if not .Editable}} disabled{{end}}  class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400" />
       </div>
 
       <p class="text-sm text-gray-500"><a class="text-blue-600 hover:underline" href="/.help">Help and advanced options</a></p>

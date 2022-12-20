@@ -203,6 +203,7 @@ type visitData struct {
 type homeData struct {
 	Short  string
 	Clicks []visitData
+	Links	 []*Link
 }
 
 func init() {
@@ -273,9 +274,16 @@ func serveHome(w http.ResponseWriter, short string) {
 		clicks = clicks[:200]
 	}
 
+	links, err := db.LoadAll()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	homeTmpl.Execute(w, homeData{
 		Short:  short,
 		Clicks: clicks,
+		Links:  links,
 	})
 }
 
@@ -532,6 +540,8 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		owner = login
 	}
 
+	desc :=  r.FormValue("desc")
+
 	now := time.Now().UTC()
 	if link == nil {
 		link = &Link{
@@ -541,6 +551,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 	link.Short = short
 	link.Long = long
+	link.Desc = desc
 	link.LastEdit = now
 	link.Owner = owner
 	if err := db.Save(link); err != nil {

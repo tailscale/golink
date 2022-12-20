@@ -44,7 +44,7 @@ You will also need to specify your sqlite database file:
 golink stores its tailscale data files in a `tsnet-golink` directory inside [os.UserConfigDir].
 As long as this is on a persistent volume, the auth key only needs to be provided on first run.
 
-[auth-key]: https://tailscale.com/kb/1085/auth-keys/
+[auth key]: https://tailscale.com/kb/1085/auth-keys/
 [tag]: https://tailscale.com/kb/1068/acl-tags/
 [os.UserConfigDir]: https://pkg.go.dev/os#UserConfigDir
 

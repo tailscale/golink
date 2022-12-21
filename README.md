@@ -68,7 +68,7 @@ Two pieces of data should be on persistent volumes:
 
 In the docker image, both are stored in `/home/nonroot`, so you can mount a persistent volume:
 
-    docker run -v /persistant/data:/home/nonroot ghcr.io/tailscale/golink:main
+    docker run -v /persistent/data:/home/nonroot ghcr.io/tailscale/golink:main
 
 The mounted directory will need to be writable by the nonroot user (uid: 65532, gid: 65532),
 for example by calling `sudo chown 65532 /persistent/data`.

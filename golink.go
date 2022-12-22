@@ -457,6 +457,8 @@ func currentUser(r *http.Request) (string, error) {
 
 // userExists returns whether a user exists with the specified login in the current tailnet.
 func userExists(ctx context.Context, login string) (bool, error) {
+	const userTaggedDevices = "tagged-devices" // owner of tagged devices
+
 	if devMode() {
 		// in dev mode, just assume the user exists
 		return true, nil
@@ -466,6 +468,9 @@ func userExists(ctx context.Context, login string) (bool, error) {
 		return false, err
 	}
 	for _, user := range st.User {
+		if user.LoginName == userTaggedDevices {
+			continue
+		}
 		if user.LoginName == login {
 			return true, nil
 		}

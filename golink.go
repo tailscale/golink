@@ -527,7 +527,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	if owner != "" {
 		exists, err := userExists(r.Context(), owner)
 		if err != nil {
-			log.Printf("looking up tailnet user %q: %v", link.Owner, err)
+			log.Printf("looking up tailnet user %q: %v", owner, err)
 		}
 		if !exists {
 			http.Error(w, "new owner not a valid user: "+owner, http.StatusBadRequest)

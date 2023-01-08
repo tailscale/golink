@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"tailscale.com/client/tailscale"
+	"tailscale.com/ipn"
 	"tailscale.com/tsnet"
 )
 
@@ -37,6 +38,7 @@ const defaultHostname = "go"
 
 var (
 	verbose           = flag.Bool("verbose", false, "be verbose")
+	controlURL        = flag.String("control-url", ipn.DefaultControlURL, "the URL base of the control plane (i.e. coordination server)")
 	sqlitefile        = flag.String("sqlitedb", "", "path of SQLite database to store links")
 	dev               = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
 	snapshot          = flag.String("snapshot", "", "file path of snapshot file")
@@ -153,8 +155,9 @@ func Run() error {
 	}
 
 	srv := &tsnet.Server{
-		Hostname: *hostname,
-		Logf:     func(format string, args ...any) {},
+		ControlURL: *controlURL,
+		Hostname:   *hostname,
+		Logf:       func(format string, args ...any) {},
 	}
 	if *verbose {
 		srv.Logf = log.Printf

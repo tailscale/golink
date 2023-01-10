@@ -1,4 +1,4 @@
-FROM cgr.dev/chainguard/go:1.19-musl as build
+FROM --platform=$BUILDPLATFORM cgr.dev/chainguard/go:1.19 as build
 
 WORKDIR /work
 
@@ -6,7 +6,12 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -v ./cmd/golink
+ARG TARGETOS TARGETARCH TARGETVARIANT
+RUN \
+    if [ "${TARGETARCH}" = "arm" ] && [ -n "${TARGETVARIANT}" ]; then \
+      export GOARM="${TARGETVARIANT#v}"; \
+    fi; \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -v ./cmd/golink
 
 
 FROM cgr.dev/chainguard/static:latest

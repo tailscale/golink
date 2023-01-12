@@ -127,3 +127,13 @@ Only links that don't already exist in the database will be added.
 You can also resolve links locally using a snapshot file:
 
     golink -resolve-from-backup links.json go/link
+
+## Firefox configuration
+
+If you're using Firefox, you might want to configure two options to make it easy to load links:
+    
+    * to prevent `go/` page loads from the address bar being treated as searches,
+      navigate to `about:config` and add a boolean setting `browser.fixup.domainwhitelist.go`
+      with a value of _true_
+    
+    * if you use HTTPS-Only Mode, [add an exception](https://support.mozilla.org/en-US/kb/https-only-prefs#w_add-exceptions-for-http-websites-when-youre-in-https-only-mode)

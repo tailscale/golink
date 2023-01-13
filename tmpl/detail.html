@@ -17,6 +17,8 @@
 
       <label for=owner class="text-sm font-bold block mt-4">Owner</label>
       <input id=owner name=owner required type=text size=25 placeholder="Owner" value="{{.Link.Owner}}"{{if not .Editable}} disabled{{end}} class="p-2 rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
+      <input id=globally-editable name=globally-editable type=checkbox {{if .Link.GloballyEditable}} checked{{end}} class="p-2 rounded-md border-gray-300 disabled:bg-gray-100">
+      <label for=globally-editable>Editable by anyone</label>
 
       <dl>
         <dt class="text-sm font-bold mt-6">Date Created</dt>

@@ -96,7 +96,7 @@ strategy = "immediate"
 
 [mounts]
 source="FLY_VOLUME_NAME"
-destination="/root"
+destination="/home/nonroot"
 ```
 
   Then run the commands with the [flyctl CLI].

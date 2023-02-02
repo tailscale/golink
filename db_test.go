@@ -11,8 +11,8 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-// Test saving and loading links for SQLiteDB
-func Test_SQLiteDB_SaveLoadLinks(t *testing.T) {
+// Test saving, loading, and deleting links for SQLiteDB.
+func Test_SQLiteDB_SaveLoadDeleteLinks(t *testing.T) {
 	db, err := NewSQLiteDB(path.Join(t.TempDir(), "links.db"))
 	if err != nil {
 		t.Error(err)
@@ -48,10 +48,25 @@ func Test_SQLiteDB_SaveLoadLinks(t *testing.T) {
 	if !cmp.Equal(got, links, sortLinks) {
 		t.Errorf("db.LoadAll got %v, want %v", got, links)
 	}
+
+	for _, link := range links {
+		if err := db.Delete(link.Short); err != nil {
+			t.Error(err)
+		}
+	}
+
+	got, err = db.LoadAll()
+	if err != nil {
+		t.Error(err)
+	}
+	want := []*Link(nil)
+	if !cmp.Equal(got, want) {
+		t.Errorf("db.LoadAll got %v, want %v", got, want)
+	}
 }
 
-// Test saving and loading stats for SQLiteDB
-func Test_SQLiteDB_SaveLoadStats(t *testing.T) {
+// Test saving, loading, and deleting stats for SQLiteDB.
+func Test_SQLiteDB_SaveLoadDeleteStats(t *testing.T) {
 	db, err := NewSQLiteDB(path.Join(t.TempDir(), "links.db"))
 	if err != nil {
 		t.Error(err)
@@ -91,6 +106,21 @@ func Test_SQLiteDB_SaveLoadStats(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	if !cmp.Equal(got, want) {
+		t.Errorf("db.LoadStats got %v, want %v", got, want)
+	}
+
+	for k := range want {
+		if err := db.DeleteStats(k); err != nil {
+			t.Error(err)
+		}
+	}
+
+	got, err = db.LoadStats()
+	if err != nil {
+		t.Error(err)
+	}
+	want = ClickStats{}
 	if !cmp.Equal(got, want) {
 		t.Errorf("db.LoadStats got %v, want %v", got, want)
 	}

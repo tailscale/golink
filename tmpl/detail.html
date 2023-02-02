@@ -29,6 +29,13 @@
       <button type=submit class="py-2 px-4 my-4 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Update</button>
     </form>
 
+    <h3 class="text-lg font-bold pb-2 pt-4 text-red-500">Danger Zone</h3>
+
+    <form method="POST" action="/.delete/{{.Link.Short}}">
+      <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
+      <button type=submit class="py-2 px-4 my-2 rounded-md bg-red-500 border-red-500 text-white hover:bg-red-600 hover:border-red-600">Delete Link</button>
+    </form>
+
     {{ else }}
     <dl>
       <dt class="text-sm font-bold mt-6">Name</dt>

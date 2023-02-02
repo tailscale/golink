@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/net/xsrftoken"
 )
 
 func init() {
@@ -158,6 +160,79 @@ func TestServeSave(t *testing.T) {
 
 			if w.Code != tt.wantStatus {
 				t.Errorf("serveSave(%q, %q) = %d; want %d", tt.short, tt.long, w.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestServeDelete(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Save(&Link{Short: "a", Owner: "a@example.com"})
+	db.Save(&Link{Short: "foo", Owner: "foo@example.com"})
+
+	xsrf := func(short string) string {
+		return xsrftoken.Generate(xsrfKey, "foo@example.com", short)
+	}
+
+	tests := []struct {
+		name        string
+		short       string
+		xsrf        string
+		currentUser func(*http.Request) (string, error)
+		wantStatus  int
+	}{
+		{
+			name:       "missing short",
+			short:      "",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "non-existant link",
+			short:      "does-not-exist",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "unowned link",
+			short:      "a",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "invalid xsrf",
+			short:      "foo",
+			xsrf:       xsrf("invalid"),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "valid xsrf",
+			short:      "foo",
+			xsrf:       xsrf("foo"),
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.currentUser != nil {
+				oldCurrentUser := currentUser
+				currentUser = tt.currentUser
+				t.Cleanup(func() {
+					currentUser = oldCurrentUser
+				})
+			}
+
+			r := httptest.NewRequest("POST", "/.delete/"+tt.short, strings.NewReader(url.Values{
+				"xsrf": {tt.xsrf},
+			}.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			serveDelete(w, r)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("serveDelete(%q) = %d; want %d", tt.short, w.Code, tt.wantStatus)
 			}
 		})
 	}

@@ -122,6 +122,28 @@ func (s *SQLiteDB) Save(link *Link) error {
 	return nil
 }
 
+// Delete removes a Link using its short name.
+func (s *SQLiteDB) Delete(short string) error {
+	result, err := s.db.Exec("DELETE FROM Links WHERE ID = ?", linkID(short))
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("expected to affect 1 row, affected %d", rows)
+	}
+
+	_, err = s.db.Exec("DELETE FROM Stats WHERE ID = ?", linkID(short))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // LoadStats returns click stats for links.
 func (s *SQLiteDB) LoadStats() (ClickStats, error) {
 	allLinks, err := s.LoadAll()

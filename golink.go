@@ -259,6 +259,15 @@ func flushStatsLoop() {
 	}
 }
 
+// deleteLinkStats removes the link stats from memory.
+func deleteLinkStats(link *Link) {
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+
+	delete(stats.clicks, link.Short)
+	delete(stats.dirty, link.Short)
+}
+
 func serveHome(w http.ResponseWriter, short string) {
 	var clicks []visitData
 
@@ -324,7 +333,12 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		case "GET":
 			serveHome(w, "")
 		case "POST":
-			serveSave(w, r)
+			switch r.FormValue("action") {
+			case "save":
+				serveSave(w, r)
+			case "delete":
+				serveDelete(w, r)
+			}
 		}
 		return
 	}
@@ -505,6 +519,43 @@ func userExists(ctx context.Context, login string) (bool, error) {
 }
 
 var reShortName = regexp.MustCompile(`^\w[\w\-\.]*$`)
+
+func serveDelete(w http.ResponseWriter, r *http.Request) {
+	short := r.FormValue("short")
+	if short == "" {
+		http.Error(w, "short required", http.StatusBadRequest)
+		return
+	}
+	if !reShortName.MatchString(short) {
+		http.Error(w, "short may only contain letters, numbers, dash, and period", http.StatusBadRequest)
+		return
+	}
+
+	login, err := currentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	link, err := db.Load(short)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if link.Owner != login {
+		http.Error(w, "cannot delete link owned by another user", http.StatusForbidden)
+		return
+	}
+
+	if err := db.Delete(short); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	deleteLinkStats(link)
+
+	http.Redirect(w, r, "/", http.StatusFound)
+}
 
 // serveSave handles requests to save or update a Link.  Both short name and
 // long URL are validated for proper format. Existing links may only be updated

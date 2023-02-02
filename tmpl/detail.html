@@ -26,7 +26,8 @@
         <dd>{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
       </dl>
 
-      <button type=submit class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Update</button>
+      <button type=submit name="action" value="save" class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Update</button>
+      <button type=submit name="action" value="delete" class="py-2 px-4 my-2 rounded-md border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100">Delete</button>
     </form>
 
     {{ else }}

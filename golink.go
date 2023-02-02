@@ -8,7 +8,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -29,6 +31,7 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"golang.org/x/net/xsrftoken"
 	"tailscale.com/client/tailscale"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
@@ -137,6 +140,7 @@ func Run() error {
 	http.HandleFunc("/.help", serveHelp)
 	http.HandleFunc("/.opensearch", serveOpenSearch)
 	http.HandleFunc("/.all", serveAll)
+	http.HandleFunc("/.delete/", serveDelete)
 	http.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
 	if *dev != "" {
@@ -200,6 +204,9 @@ var (
 	// allTmpl is the template used by the http://go/.all page
 	allTmpl *template.Template
 
+	// deleteTmpl is the template used after a link has been deleted.
+	deleteTmpl *template.Template
+
 	// opensearchTmpl is the template used by the http://go/.opensearch page
 	opensearchTmpl *template.Template
 )
@@ -215,13 +222,20 @@ type homeData struct {
 	Clicks []visitData
 }
 
+var xsrfKey string
+
 func init() {
 	homeTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/home.html"))
 	detailTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/detail.html"))
 	successTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/success.html"))
 	helpTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/help.html"))
 	allTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/all.html"))
+	deleteTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/delete.html"))
 	opensearchTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/opensearch.xml"))
+
+	b := make([]byte, 24)
+	rand.Read(b)
+	xsrfKey = base64.StdEncoding.EncodeToString(b)
 }
 
 // initStats initializes the in-memory stats counter with counts from db.
@@ -264,6 +278,16 @@ func flushStatsLoop() {
 		}
 		time.Sleep(time.Minute)
 	}
+}
+
+// deleteLinkStats removes the link stats from memory.
+func deleteLinkStats(link *Link) {
+	stats.mu.Lock()
+	delete(stats.clicks, link.Short)
+	delete(stats.dirty, link.Short)
+	stats.mu.Unlock()
+
+	db.DeleteStats(link.Short)
 }
 
 func serveHome(w http.ResponseWriter, short string) {
@@ -388,6 +412,7 @@ type detailData struct {
 	// Editable indicates whether the current user can edit the link.
 	Editable bool
 	Link     *Link
+	XSRF     string
 }
 
 func serveDetail(w http.ResponseWriter, r *http.Request) {
@@ -426,6 +451,7 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 	if link.Owner == login || !ownerExists {
 		data.Editable = true
 		data.Link.Owner = login
+		data.XSRF = xsrftoken.Generate(xsrfKey, login, short)
 	}
 
 	detailTmpl.Execute(w, data)
@@ -520,6 +546,44 @@ func userExists(ctx context.Context, login string) (bool, error) {
 }
 
 var reShortName = regexp.MustCompile(`^\w[\w\-\.]*$`)
+
+func serveDelete(w http.ResponseWriter, r *http.Request) {
+	short := strings.TrimPrefix(r.RequestURI, "/.delete/")
+	if short == "" {
+		http.Error(w, "short required", http.StatusBadRequest)
+		return
+	}
+
+	login, err := currentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	link, err := db.Load(short)
+	if errors.Is(err, fs.ErrNotExist) {
+		http.NotFound(w, r)
+		return
+	}
+
+	if link.Owner != login {
+		http.Error(w, "cannot delete link owned by another user", http.StatusForbidden)
+		return
+	}
+
+	if !xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, login, short) {
+		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
+		return
+	}
+
+	if err := db.Delete(short); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	deleteLinkStats(link)
+
+	deleteTmpl.Execute(w, link)
+}
 
 // serveSave handles requests to save or update a Link.  Both short name and
 // long URL are validated for proper format. Existing links may only be updated

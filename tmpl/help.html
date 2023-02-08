@@ -43,10 +43,11 @@ To have more control over how go links are resolved, destination links can use <
 Templates are provided a data structure with the following fields:
 
 <ul>
-  <li><code>.Path</code> is the remaining path value after the short name (without a leading slash). For the link <strong>go/who/amelie</strong>,
-      the value of <code>.Path</code> is <code>amelie</code>.
+  <li><code>.Path</code> is the remaining path value after the short name (without a leading slash).
+    For the link <strong>go/who/amelie</strong>, the value of <code>.Path</code> is <code>amelie</code>.
   <li><code>.Now</code> is a <a href="https://pkg.go.dev/time#Time">time.Time</a> value representing the current date and time.
-      Use <a href="https://pkg.go.dev/time#Time.Format">Time.Format</a> to output date or time in desired format.
+  <li><code>.User</code> is the current user resolving the link.
+    This is the email address of the user or <code>{username}@github</code> for tailnets that use GitHub authentication.
 </ul>
 
 Templates also have access to the following template functions:

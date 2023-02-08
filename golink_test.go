@@ -10,11 +10,12 @@ import (
 
 func TestExpandLink(t *testing.T) {
 	tests := []struct {
-		name      string
-		long      string
-		now       time.Time
-		remainder string
-		want      string
+		name      string    // test name
+		long      string    // long URL for golink
+		now       time.Time // current time
+		user      string    // current user resolving link
+		remainder string    // remainder of URL path after golink name
+		want      string    // expected redirect URL
 	}{
 		{
 			name: "dont-mangle-escapes",
@@ -46,6 +47,12 @@ func TestExpandLink(t *testing.T) {
 			now:  time.Date(2022, 06, 02, 1, 2, 3, 4, time.UTC),
 		},
 		{
+			name: "var-expansions-user",
+			long: `http://host.com/{{.User}}`,
+			user: "foo@example.com",
+			want: "http://host.com/foo@example.com",
+		},
+		{
 			name: "template-no-path",
 			long: "https://calendar.google.com/{{with .Path}}calendar/embed?mode=week&src={{.}}@tailscale.com{{end}}",
 			want: "https://calendar.google.com/",
@@ -58,7 +65,7 @@ func TestExpandLink(t *testing.T) {
 		},
 		{
 			name:      "template-with-pathescape-func",
-			long:      "http://host.com/{{QueryEscape .Path}}",
+			long:      "http://host.com/{{PathEscape .Path}}",
 			remainder: "a/b",
 			want:      "http://host.com/a%2Fb",
 		},
@@ -77,7 +84,7 @@ func TestExpandLink(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := expandLink(tt.long, expandEnv{Now: tt.now, Path: tt.remainder})
+			got, err := expandLink(tt.long, expandEnv{Now: tt.now, Path: tt.remainder, User: tt.user})
 			if err != nil {
 				t.Fatalf("expandLink(%q): %v", tt.long, err)
 			}

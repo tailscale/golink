@@ -363,7 +363,9 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	stats.dirty[link.Short]++
 	stats.mu.Unlock()
 
-	target, err := expandLink(link.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
+	currentUser, _ := currentUser(r)
+
+	target, err := expandLink(link.Long, expandEnv{Now: time.Now().UTC(), Path: remainder, User: currentUser})
 	if err != nil {
 		log.Printf("expanding %q: %v", link.Long, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -431,6 +433,10 @@ type expandEnv struct {
 	// Path is the remaining path after short name.  For example, in
 	// "http://go/who/amelie", Path is "amelie".
 	Path string
+
+	// User is the current user, if any.
+	// For example, "foo@example.com" or "foo@github".
+	User string
 }
 
 var expandFuncMap = texttemplate.FuncMap{

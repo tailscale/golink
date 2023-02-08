@@ -198,6 +198,9 @@ var (
 	// allTmpl is the template used by the http://go/.all page
 	allTmpl *template.Template
 
+	// deleteTmpl is the template used after a link has been deleted.
+	deleteTmpl *template.Template
+
 	// opensearchTmpl is the template used by the http://go/.opensearch page
 	opensearchTmpl *template.Template
 )
@@ -219,6 +222,7 @@ func init() {
 	successTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/success.html"))
 	helpTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/help.html"))
 	allTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/all.html"))
+	deleteTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/delete.html"))
 	opensearchTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/opensearch.xml"))
 }
 
@@ -546,7 +550,7 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	deleteLinkStats(link)
 
-	http.Redirect(w, r, "/", http.StatusFound)
+	deleteTmpl.Execute(w, link)
 }
 
 // serveSave handles requests to save or update a Link.  Both short name and

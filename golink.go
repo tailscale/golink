@@ -134,6 +134,7 @@ func Run() error {
 	http.HandleFunc("/.help", serveHelp)
 	http.HandleFunc("/.opensearch", serveOpenSearch)
 	http.HandleFunc("/.all", serveAll)
+	http.HandleFunc("/.delete/", serveDelete)
 	http.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
 	if *dev != "" {
@@ -333,12 +334,7 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		case "GET":
 			serveHome(w, "")
 		case "POST":
-			switch r.FormValue("action") {
-			case "save":
-				serveSave(w, r)
-			case "delete":
-				serveDelete(w, r)
-			}
+			serveSave(w, r)
 		}
 		return
 	}
@@ -521,13 +517,9 @@ func userExists(ctx context.Context, login string) (bool, error) {
 var reShortName = regexp.MustCompile(`^\w[\w\-\.]*$`)
 
 func serveDelete(w http.ResponseWriter, r *http.Request) {
-	short := r.FormValue("short")
+	short := strings.TrimPrefix(r.RequestURI, "/.delete/")
 	if short == "" {
 		http.Error(w, "short required", http.StatusBadRequest)
-		return
-	}
-	if !reShortName.MatchString(short) {
-		http.Error(w, "short may only contain letters, numbers, dash, and period", http.StatusBadRequest)
 		return
 	}
 
@@ -538,8 +530,8 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	link, err := db.Load(short)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if errors.Is(err, fs.ErrNotExist) {
+		http.NotFound(w, r)
 		return
 	}
 

@@ -242,6 +242,10 @@ func flushStats() error {
 	stats.mu.Lock()
 	defer stats.mu.Unlock()
 
+	if len(stats.dirty) == 0 {
+		return nil
+	}
+
 	if err := db.SaveStats(stats.dirty); err != nil {
 		return err
 	}

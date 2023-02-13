@@ -18,6 +18,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"net/netip"
 	"net/http"
 	"net/url"
 	"os"
@@ -64,7 +65,11 @@ var embeddedFS embed.FS
 // db stores short links.
 var db *SQLiteDB
 
+var tailscalePrefixV4 = netip.MustParsePrefix("100.64.0.0/10")
+var tailscalePrefixV6 = netip.MustParsePrefix("fd7a:115c:a1e0:ab12::/64")
+
 var localClient *tailscale.LocalClient
+var apiClient *tailscale.Client
 
 func Run() error {
 	flag.Parse()
@@ -155,6 +160,8 @@ func Run() error {
 		return errors.New("--hostname, if specified, cannot be empty")
 	}
 
+	tailscale.I_Acknowledge_This_API_Is_Unstable = true
+
 	srv := &tsnet.Server{
 		ControlURL: *controlURL,
 		Hostname:   *hostname,
@@ -167,6 +174,7 @@ func Run() error {
 		return err
 	}
 	localClient, _ = srv.LocalClient()
+	apiClient, _ = srv.APIClient()
 
 	l80, err := srv.Listen("tcp", ":80")
 	if err != nil {
@@ -481,6 +489,13 @@ func currentUser(r *http.Request) (string, error) {
 	if devMode() {
 		login = "foo@example.com"
 	} else {
+		ipprt, _ := netip.ParseAddrPort(r.RemoteAddr)
+		ip := ipprt.Addr()
+
+		if (! tailscalePrefixV4.Contains(ip)) && (! tailscalePrefixV6.Contains(ip)) {
+			log.Println("non-tailnet (subnet routed) address detected: ", ip.String())
+		}
+
 		res, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
 			return "", err

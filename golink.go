@@ -65,11 +65,14 @@ var embeddedFS embed.FS
 // db stores short links.
 var db *SQLiteDB
 
+// prefixes used for devices on tailnets
 var tailscalePrefixV4 = netip.MustParsePrefix("100.64.0.0/10")
 var tailscalePrefixV6 = netip.MustParsePrefix("fd7a:115c:a1e0:ab12::/64")
 
+const userTaggedDevices = "tagged-devices"	// owner of tagged devices
+const userSubnetRoute = "subnet-route"		// owner of devices on subnet routes
+
 var localClient *tailscale.LocalClient
-var apiClient *tailscale.Client
 
 func Run() error {
 	flag.Parse()
@@ -160,8 +163,6 @@ func Run() error {
 		return errors.New("--hostname, if specified, cannot be empty")
 	}
 
-	tailscale.I_Acknowledge_This_API_Is_Unstable = true
-
 	srv := &tsnet.Server{
 		ControlURL: *controlURL,
 		Hostname:   *hostname,
@@ -174,7 +175,6 @@ func Run() error {
 		return err
 	}
 	localClient, _ = srv.LocalClient()
-	apiClient, _ = srv.APIClient()
 
 	l80, err := srv.Listen("tcp", ":80")
 	if err != nil {
@@ -494,6 +494,8 @@ func currentUser(r *http.Request) (string, error) {
 
 		if (! tailscalePrefixV4.Contains(ip)) && (! tailscalePrefixV6.Contains(ip)) {
 			log.Println("non-tailnet (subnet routed) address detected: ", ip.String())
+
+			return userSubnetRoute, nil
 		}
 
 		res, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
@@ -508,8 +510,6 @@ func currentUser(r *http.Request) (string, error) {
 
 // userExists returns whether a user exists with the specified login in the current tailnet.
 func userExists(ctx context.Context, login string) (bool, error) {
-	const userTaggedDevices = "tagged-devices" // owner of tagged devices
-
 	if devMode() {
 		// in dev mode, just assume the user exists
 		return true, nil
@@ -520,6 +520,9 @@ func userExists(ctx context.Context, login string) (bool, error) {
 	}
 	for _, user := range st.User {
 		if user.LoginName == userTaggedDevices {
+			continue
+		}
+		if user.LoginName == userSubnetRoute {
 			continue
 		}
 		if user.LoginName == login {

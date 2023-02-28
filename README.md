@@ -28,6 +28,15 @@ The equivalent using the pre-built docker image:
 If you receive the docker error `unable to open database file: out of memory (14)`,
 use a persistent volume as documented in [Running in production](#running-in-production).
 
+### Updating Dependencies
+
+After updating dependencies and making changes to `go.mod` and `go.sum`, `flake.nix` needs
+to be updated to reflect the new SHA256 of the go dependencies. This can be done by running:
+
+```bash
+./update-flake.sh
+```
+
 ## Joining a tailnet
 
 Create an [auth key] for your tailnet at <https://login.tailscale.com/admin/settings/keys>.
@@ -131,7 +140,7 @@ You can also resolve links locally using a snapshot file:
 ## Firefox configuration
 
 If you're using Firefox, you might want to configure two options to make it easy to load links:
-    
+
   * to prevent `go/` page loads from the address bar being treated as searches,
     navigate to `about:config` and add a boolean setting `browser.fixup.domainwhitelist.go`
     with a value of _true_

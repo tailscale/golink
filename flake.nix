@@ -24,7 +24,7 @@
           pkgs = nixpkgs.legacyPackages.${prev.system};
         in
         rec {
-          golink = pkgs.buildGo119Module rec {
+          golink = pkgs.buildGo120Module rec {
             pname = "golink";
             version = golinkVersion;
             src = pkgs.nix-gitignore.gitignoreSource [ ] ./.;
@@ -43,7 +43,7 @@
       in
       rec {
         # `nix develop`
-        devShell = pkgs.mkShell { buildInputs = [ pkgs.go ]; };
+        devShell = pkgs.mkShell { buildInputs = [ pkgs.go_1_20 ]; };
 
         # `nix build`
         packages = with pkgs; {

@@ -667,5 +667,11 @@ func resolveLink(link string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return expandLink(l.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
+	dst, err := expandLink(l.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
+	if err == nil {
+		if u, uErr := url.Parse(dst); uErr == nil && (u.Hostname() == "" || u.Hostname() == *hostname) {
+			dst, err = resolveLink(dst)
+		}
+	}
+	return dst, err
 }

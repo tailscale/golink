@@ -103,6 +103,8 @@ func TestResolveLink(t *testing.T) {
 	}
 	db.Save(&Link{Short: "meet", Long: "https://meet.google.com/lookup/"})
 	db.Save(&Link{Short: "cs", Long: "http://codesearch/{{with .Path}}search?q={{.}}{{end}}"})
+	db.Save(&Link{Short: "m", Long: "http://go/meet"})
+	db.Save(&Link{Short: "chat", Long: "/meet"})
 
 	tests := []struct {
 		link string
@@ -136,6 +138,16 @@ func TestResolveLink(t *testing.T) {
 		{
 			link: "cs/term",
 			want: "http://codesearch/search?q=term",
+		},
+		{
+			// aliased go links with hostname
+			link: "m/foo",
+			want: "https://meet.google.com/lookup/foo",
+		},
+		{
+			// aliased go links without hostname
+			link: "chat/foo",
+			want: "https://meet.google.com/lookup/foo",
 		},
 	}
 	for _, tt := range tests {

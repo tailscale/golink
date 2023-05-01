@@ -4,9 +4,164 @@
 package golink
 
 import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
+
+func init() {
+	// tests always need golink to be run in dev mode
+	*dev = ":8080"
+}
+
+func TestServeGo(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Save(&Link{Short: "who", Long: "http://who/"})
+	db.Save(&Link{Short: "me", Long: "/who/{{.User}}"})
+	db.Save(&Link{Short: "invalid-var", Long: "/who/{{.Invalid}}"})
+
+	tests := []struct {
+		name        string
+		link        string
+		currentUser func(*http.Request) (string, error)
+		wantStatus  int
+		wantLink    string
+	}{
+		{
+			name:       "simple link",
+			link:       "/who",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/",
+		},
+		{
+			name:        "simple link, anonymous request",
+			link:        "/who",
+			currentUser: func(*http.Request) (string, error) { return "", nil },
+			wantStatus:  http.StatusFound,
+			wantLink:    "http://who/",
+		},
+		{
+			name:       "user link",
+			link:       "/me",
+			wantStatus: http.StatusFound,
+			wantLink:   "/who/foo@example.com",
+		},
+		{
+			name:       "unknown link",
+			link:       "/does-not-exist",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "unknown variable",
+			link:       "/invalid-var",
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.currentUser != nil {
+				oldCurrentUser := currentUser
+				currentUser = tt.currentUser
+				t.Cleanup(func() {
+					currentUser = oldCurrentUser
+				})
+			}
+
+			r := httptest.NewRequest("GET", tt.link, nil)
+			w := httptest.NewRecorder()
+			serveGo(w, r)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("serveGo(%q) = %d; want %d", tt.link, w.Code, tt.wantStatus)
+			}
+			if gotLink := w.Header().Get("Location"); gotLink != tt.wantLink {
+				t.Errorf("serveGo(%q) = %q; want %q", tt.link, gotLink, tt.wantLink)
+			}
+		})
+	}
+}
+
+func TestServeSave(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		short       string
+		long        string
+		currentUser func(*http.Request) (string, error)
+		wantStatus  int
+	}{
+		{
+			name:       "missing short",
+			short:      "",
+			long:       "http://who/",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing long",
+			short:      "",
+			long:       "http://who/",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "save simple link",
+			short:      "who",
+			long:       "http://who/",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:        "disallow editing another's link",
+			short:       "who",
+			long:        "http://who/",
+			currentUser: func(*http.Request) (string, error) { return "bar@example.com", nil },
+			wantStatus:  http.StatusForbidden,
+		},
+		{
+			name:        "disallow unknown users",
+			short:       "who2",
+			long:        "http://who/",
+			currentUser: func(*http.Request) (string, error) { return "", errors.New("") },
+			wantStatus:  http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.currentUser != nil {
+				oldCurrentUser := currentUser
+				currentUser = tt.currentUser
+				t.Cleanup(func() {
+					currentUser = oldCurrentUser
+				})
+			}
+
+			r := httptest.NewRequest("POST", "/", strings.NewReader(url.Values{
+				"short": {tt.short},
+				"long":  {tt.long},
+			}.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			serveSave(w, r)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("serveSave(%q, %q) = %d; want %d", tt.short, tt.long, w.Code, tt.wantStatus)
+			}
+		})
+	}
+}
 
 func TestExpandLink(t *testing.T) {
 	tests := []struct {
@@ -15,6 +170,7 @@ func TestExpandLink(t *testing.T) {
 		now       time.Time // current time
 		user      string    // current user resolving link
 		remainder string    // remainder of URL path after golink name
+		wantErr   bool      // whether we expect an error
 		want      string    // expected redirect URL
 	}{
 		{
@@ -53,6 +209,11 @@ func TestExpandLink(t *testing.T) {
 			want: "http://host.com/foo@example.com",
 		},
 		{
+			name:    "unknown-field",
+			long:    `http://host.com/{{.Foo}}`,
+			wantErr: true,
+		},
+		{
 			name: "template-no-path",
 			long: "https://calendar.google.com/{{with .Path}}calendar/embed?mode=week&src={{.}}@tailscale.com{{end}}",
 			want: "https://calendar.google.com/",
@@ -85,8 +246,8 @@ func TestExpandLink(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := expandLink(tt.long, expandEnv{Now: tt.now, Path: tt.remainder, User: tt.user})
-			if err != nil {
-				t.Fatalf("expandLink(%q): %v", tt.long, err)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("expandLink(%q) returned error %v; want %v", tt.long, err, tt.wantErr)
 			}
 			if got != tt.want {
 				t.Errorf("expandLink(%q) = %q; want %q", tt.long, got, tt.want)

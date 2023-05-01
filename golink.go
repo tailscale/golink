@@ -346,6 +346,7 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 
 	link, err := db.Load(short)
 	if errors.Is(err, fs.ErrNotExist) {
+		w.WriteHeader(http.StatusNotFound)
 		serveHome(w, short)
 		return
 	}
@@ -467,7 +468,9 @@ func expandLink(long string, env expandEnv) (string, error) {
 		return "", err
 	}
 	buf := new(bytes.Buffer)
-	tmpl.Execute(buf, env)
+	if err := tmpl.Execute(buf, env); err != nil {
+		return "", err
+	}
 	long = buf.String()
 
 	_, err = url.Parse(long)
@@ -479,19 +482,18 @@ func expandLink(long string, env expandEnv) (string, error) {
 
 func devMode() bool { return *dev != "" }
 
-func currentUser(r *http.Request) (string, error) {
-	login := ""
+// currentUser returns the Tailscale user associated with the request.
+// In most cases, this will be the user that owns the device that made the request.
+// For tagged devices, the value "tagged-devices" is returned.
+var currentUser = func(r *http.Request) (string, error) {
 	if devMode() {
-		login = "foo@example.com"
-	} else {
-		res, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
-		if err != nil {
-			return "", err
-		}
-		login = res.UserProfile.LoginName
+		return "foo@example.com", nil
 	}
-	return login, nil
-
+	whois, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
+	if err != nil {
+		return "", err
+	}
+	return whois.UserProfile.LoginName, nil
 }
 
 // userExists returns whether a user exists with the specified login in the current tailnet.

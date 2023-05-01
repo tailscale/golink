@@ -45,6 +45,7 @@ var (
 	snapshot          = flag.String("snapshot", "", "file path of snapshot file")
 	hostname          = flag.String("hostname", defaultHostname, "service name")
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
+	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
 )
 
 var stats struct {
@@ -367,11 +368,14 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	stats.dirty[link.Short]++
 	stats.mu.Unlock()
 
-	currentUser, _ := currentUser(r)
-
-	target, err := expandLink(link.Long, expandEnv{Now: time.Now().UTC(), Path: remainder, User: currentUser})
+	login, _ := currentUser(r)
+	target, err := expandLink(link.Long, expandEnv{Now: time.Now().UTC(), Path: remainder, user: login})
 	if err != nil {
 		log.Printf("expanding %q: %v", link.Long, err)
+		if errors.Is(err, errNoUser) {
+			http.Error(w, "link requires a valid user", http.StatusUnauthorized)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -438,9 +442,19 @@ type expandEnv struct {
 	// "http://go/who/amelie", Path is "amelie".
 	Path string
 
-	// User is the current user, if any.
+	// user is the current user, if any.
 	// For example, "foo@example.com" or "foo@github".
-	User string
+	user string
+}
+
+var errNoUser = errors.New("no user")
+
+// User returns the current user, or errNoUser if there is no user.
+func (e expandEnv) User() (string, error) {
+	if e.user == "" {
+		return "", errNoUser
+	}
+	return e.user, nil
 }
 
 var expandFuncMap = texttemplate.FuncMap{
@@ -485,12 +499,18 @@ func devMode() bool { return *dev != "" }
 // currentUser returns the Tailscale user associated with the request.
 // In most cases, this will be the user that owns the device that made the request.
 // For tagged devices, the value "tagged-devices" is returned.
+// If the user can't be determined (such as requests coming through a subnet router),
+// an error is returned unless the -allow-unknown-users flag is set.
 var currentUser = func(r *http.Request) (string, error) {
 	if devMode() {
 		return "foo@example.com", nil
 	}
 	whois, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
 	if err != nil {
+		if *allowUnknownUsers {
+			// Don't report the error if we are allowing unknown users.
+			return "", nil
+		}
 		return "", err
 	}
 	return whois.UserProfile.LoginName, nil

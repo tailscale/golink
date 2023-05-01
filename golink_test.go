@@ -64,6 +64,12 @@ func TestServeGo(t *testing.T) {
 			link:       "/invalid-var",
 			wantStatus: http.StatusInternalServerError,
 		},
+		{
+			name:        "user link, anonymous request",
+			link:        "/me",
+			currentUser: func(*http.Request) (string, error) { return "", nil },
+			wantStatus:  http.StatusUnauthorized,
+		},
 	}
 
 	for _, tt := range tests {
@@ -98,11 +104,12 @@ func TestServeSave(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		short       string
-		long        string
-		currentUser func(*http.Request) (string, error)
-		wantStatus  int
+		name              string
+		short             string
+		long              string
+		allowUnknownUsers bool
+		currentUser       func(*http.Request) (string, error)
+		wantStatus        int
 	}{
 		{
 			name:       "missing short",
@@ -136,6 +143,14 @@ func TestServeSave(t *testing.T) {
 			currentUser: func(*http.Request) (string, error) { return "", errors.New("") },
 			wantStatus:  http.StatusInternalServerError,
 		},
+		{
+			name:              "allow unknown users",
+			short:             "who2",
+			long:              "http://who/",
+			allowUnknownUsers: true,
+			currentUser:       func(*http.Request) (string, error) { return "", nil },
+			wantStatus:        http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -147,6 +162,10 @@ func TestServeSave(t *testing.T) {
 					currentUser = oldCurrentUser
 				})
 			}
+
+			oldAllowUnknownUsers := *allowUnknownUsers
+			*allowUnknownUsers = tt.allowUnknownUsers
+			t.Cleanup(func() { *allowUnknownUsers = oldAllowUnknownUsers })
 
 			r := httptest.NewRequest("POST", "/", strings.NewReader(url.Values{
 				"short": {tt.short},
@@ -209,6 +228,11 @@ func TestExpandLink(t *testing.T) {
 			want: "http://host.com/foo@example.com",
 		},
 		{
+			name:    "var-expansions-no-user",
+			long:    `http://host.com/{{.User}}`,
+			wantErr: true,
+		},
+		{
 			name:    "unknown-field",
 			long:    `http://host.com/{{.Foo}}`,
 			wantErr: true,
@@ -245,7 +269,7 @@ func TestExpandLink(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := expandLink(tt.long, expandEnv{Now: tt.now, Path: tt.remainder, User: tt.user})
+			got, err := expandLink(tt.long, expandEnv{Now: tt.now, Path: tt.remainder, user: tt.user})
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("expandLink(%q) returned error %v; want %v", tt.long, err, tt.wantErr)
 			}

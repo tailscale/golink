@@ -7,7 +7,7 @@ require (
 	modernc.org/sqlite v1.19.4
 	// Always use a pseudo-version for the tailscale.com module, or else
 	// go's version selection causes problems when pulling golink into corp.
-	tailscale.com v1.1.1-0.20230228215232-768df4ff7a30
+	tailscale.com v1.40.0
 )
 
 require (
@@ -43,7 +43,7 @@ require (
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/compress v1.15.4 // indirect
 	github.com/kortschak/wol v0.0.0-20200729010619-da482cc4850a // indirect
-	github.com/mattn/go-isatty v0.0.16 // indirect
+	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/mdlayher/genetlink v1.2.0 // indirect
 	github.com/mdlayher/netlink v1.7.1 // indirect
 	github.com/mdlayher/sdnotify v1.0.0 // indirect
@@ -55,7 +55,7 @@ require (
 	github.com/tailscale/golang-x-crypto v0.0.0-20221102133106-bc99ab8c2d17 // indirect
 	github.com/tailscale/goupnp v1.0.1-0.20210804011211-c64d0f06ea05 // indirect
 	github.com/tailscale/netlink v1.1.1-0.20211101221916-cabfb018fe85 // indirect
-	github.com/tailscale/wireguard-go v0.0.0-20221219190806-4fa124729667 // indirect
+	github.com/tailscale/wireguard-go v0.0.0-20230410165232-af172621b4dd // indirect
 	github.com/tcnksm/go-httpstat v0.2.0 // indirect
 	github.com/u-root/uio v0.0.0-20221213070652-c3537552635f // indirect
 	github.com/vishvananda/netlink v1.1.1-0.20211118161826-650dca95af54 // indirect
@@ -65,17 +65,17 @@ require (
 	go4.org/netipx v0.0.0-20220725152314-7e7bdc8411bf // indirect
 	golang.org/x/crypto v0.6.0 // indirect
 	golang.org/x/exp v0.0.0-20221205204356-47842c84f3db // indirect
-	golang.org/x/mod v0.7.0 // indirect
-	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/mod v0.9.0 // indirect
+	golang.org/x/net v0.8.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.5.0 // indirect
-	golang.org/x/term v0.5.0 // indirect
-	golang.org/x/text v0.7.0 // indirect
+	golang.org/x/sys v0.6.0 // indirect
+	golang.org/x/term v0.6.0 // indirect
+	golang.org/x/text v0.8.0 // indirect
 	golang.org/x/time v0.0.0-20220609170525-579cf78fd858 // indirect
-	golang.org/x/tools v0.4.1-0.20221208213631-3f74d914ae6d // indirect
+	golang.org/x/tools v0.7.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
-	gvisor.dev/gvisor v0.0.0-20221203005347-703fd9b7fbc0 // indirect
+	gvisor.dev/gvisor v0.0.0-20230328175328-162ed5ef888d // indirect
 	inet.af/peercred v0.0.0-20210906144145-0893ea02156a // indirect
 	lukechampine.com/uint128 v1.2.0 // indirect
 	modernc.org/cc/v3 v3.40.0 // indirect

@@ -7,7 +7,7 @@ require (
 	modernc.org/sqlite v1.19.4
 	// Always use a pseudo-version for the tailscale.com module, or else
 	// go's version selection causes problems when pulling golink into corp.
-	tailscale.com v1.40.0
+	tailscale.com v1.1.1-0.20230501211016-c5bf868940d8
 )
 
 require (

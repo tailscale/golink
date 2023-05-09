@@ -124,11 +124,15 @@ func Run() error {
 
 	// if link specified on command line, resolve and exit
 	if flag.NArg() > 0 {
-		destination, err := resolveLink(flag.Arg(0))
+		u, err := url.Parse(flag.Arg(0))
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println(destination)
+		dst, err := resolveLink(u)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(dst.String())
 		os.Exit(0)
 	}
 
@@ -403,7 +407,7 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, target, http.StatusFound)
+	http.Redirect(w, r, target.String(), http.StatusFound)
 }
 
 // acceptHTML returns whether the request can accept a text/html response.
@@ -494,7 +498,7 @@ var expandFuncMap = texttemplate.FuncMap{
 //
 // If long does not include templates, the default behavior is to append
 // env.Path to long.
-func expandLink(long string, env expandEnv) (string, error) {
+func expandLink(long string, env expandEnv) (*url.URL, error) {
 	if !strings.Contains(long, "{{") {
 		// default behavior is to append remaining path to long URL
 		if strings.HasSuffix(long, "/") {
@@ -505,19 +509,19 @@ func expandLink(long string, env expandEnv) (string, error) {
 	}
 	tmpl, err := texttemplate.New("").Funcs(expandFuncMap).Parse(long)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	buf := new(bytes.Buffer)
 	if err := tmpl.Execute(buf, env); err != nil {
-		return "", err
+		return nil, err
 	}
-	long = buf.String()
 
-	_, err = url.Parse(long)
+	u, err := url.Parse(buf.String())
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return long, nil
+
+	return u, nil
 }
 
 func devMode() bool { return *dev != "" }
@@ -740,22 +744,23 @@ func restoreLastSnapshot() error {
 	return bs.Err()
 }
 
-func resolveLink(link string) (string, error) {
-	// if link specified as "go/name", trim "go" prefix.
-	// Remainder will parse as URL with no scheme or host
-	link = strings.TrimPrefix(link, *hostname)
-	u, err := url.Parse(link)
-	if err != nil {
-		return "", err
+func resolveLink(link *url.URL) (*url.URL, error) {
+	path := link.Path
+
+	// if link was specified as "go/name", it will parse with no scheme or host.
+	// Trim "go" prefix from beginning of path.
+	if link.Host == "" {
+		path = strings.TrimPrefix(path, *hostname)
 	}
-	short, remainder, _ := strings.Cut(strings.TrimPrefix(u.RequestURI(), "/"), "/")
+
+	short, remainder, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
 	l, err := db.Load(short)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	dst, err := expandLink(l.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
 	if err == nil {
-		if u, uErr := url.Parse(dst); uErr == nil && (u.Hostname() == "" || u.Hostname() == *hostname) {
+		if dst.Host == "" || dst.Host == *hostname {
 			dst, err = resolveLink(dst)
 		}
 	}

@@ -51,6 +51,24 @@ func TestServeGo(t *testing.T) {
 			wantLink:    "http://who/",
 		},
 		{
+			name:       "simple link with path",
+			link:       "/who/p",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/p",
+		},
+		{
+			name:       "simple link with query",
+			link:       "/who?q",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/", // TODO: eventually http://who/?q
+		},
+		{
+			name:       "simple link with path and query",
+			link:       "/who/p?q",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/p", // TODO: eventually http://who/p?q
+		},
+		{
 			name:       "user link",
 			link:       "/me",
 			wantStatus: http.StatusFound,

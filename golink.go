@@ -351,7 +351,7 @@ func serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
 }
 
 func serveGo(w http.ResponseWriter, r *http.Request) {
-	if r.RequestURI == "/" {
+	if r.URL.Path == "/" {
 		switch r.Method {
 		case "GET":
 			serveHome(w, "")
@@ -361,7 +361,7 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	short, remainder, _ := strings.Cut(strings.TrimPrefix(r.RequestURI, "/"), "/")
+	short, remainder, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
 
 	// redirect {name}+ links to /.detail/{name}
 	if strings.HasSuffix(short, "+") {
@@ -420,7 +420,7 @@ type detailData struct {
 }
 
 func serveDetail(w http.ResponseWriter, r *http.Request) {
-	short := strings.TrimPrefix(r.RequestURI, "/.detail/")
+	short := strings.TrimPrefix(r.URL.Path, "/.detail/")
 
 	link, err := db.Load(short)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -568,7 +568,7 @@ func userExists(ctx context.Context, login string) (bool, error) {
 var reShortName = regexp.MustCompile(`^\w[\w\-\.]*$`)
 
 func serveDelete(w http.ResponseWriter, r *http.Request) {
-	short := strings.TrimPrefix(r.RequestURI, "/.delete/")
+	short := strings.TrimPrefix(r.URL.Path, "/.delete/")
 	if short == "" {
 		http.Error(w, "short required", http.StatusBadRequest)
 		return

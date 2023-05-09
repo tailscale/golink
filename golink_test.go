@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.org/x/net/xsrftoken"
+	"tailscale.com/util/must"
 )
 
 func init() {
@@ -344,14 +345,14 @@ func TestExpandLink(t *testing.T) {
 		{
 			name:      "template-with-pathescape-func",
 			long:      "http://host.com/{{PathEscape .Path}}",
-			remainder: "a/b",
-			want:      "http://host.com/a%2Fb",
+			remainder: "a/b+c",
+			want:      "http://host.com/a%2Fb+c",
 		},
 		{
 			name:      "template-with-queryescape-func",
 			long:      "http://host.com/{{QueryEscape .Path}}",
-			remainder: "a+b",
-			want:      "http://host.com/a%2Bb",
+			remainder: "a/b+c",
+			want:      "http://host.com/a%2Fb%2Bc",
 		},
 		{
 			name:      "template-with-trimsuffix-func",
@@ -359,12 +360,29 @@ func TestExpandLink(t *testing.T) {
 			remainder: "a/",
 			want:      "http://host.com/a",
 		},
+		{
+			name:      "relative-link",
+			long:      `rel`,
+			remainder: "a",
+			want:      "rel/a",
+		},
+		{
+			name:      "relative-link-with-slash",
+			long:      `/rel`,
+			remainder: "a",
+			want:      "/rel/a",
+		},
+
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := expandLink(tt.long, expandEnv{Now: tt.now, Path: tt.remainder, user: tt.user})
+			link, err := expandLink(tt.long, expandEnv{Now: tt.now, Path: tt.remainder, user: tt.user})
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("expandLink(%q) returned error %v; want %v", tt.long, err, tt.wantErr)
+			}
+			var got string
+			if link != nil {
+				got = link.String()
 			}
 			if got != tt.want {
 				t.Errorf("expandLink(%q) = %q; want %q", tt.long, got, tt.want)
@@ -431,12 +449,13 @@ func TestResolveLink(t *testing.T) {
 	for _, tt := range tests {
 		name := "golink " + tt.link
 		t.Run(name, func(t *testing.T) {
-			got, err := resolveLink(tt.link)
+			u := must.Get(url.Parse(tt.link))
+			got, err := resolveLink(u)
 			if err != nil {
 				t.Error(err)
 			}
-			if got != tt.want {
-				t.Errorf("ResolveLink(%q) = %q; want %q", tt.link, got, tt.want)
+			if got.String() != tt.want {
+				t.Errorf("ResolveLink(%q) = %q; want %q", tt.link, got.String(), tt.want)
 			}
 		})
 	}

@@ -59,15 +59,15 @@ func TestServeGo(t *testing.T) {
 		},
 		{
 			name:       "simple link with query",
-			link:       "/who?q",
+			link:       "/who?q=1",
 			wantStatus: http.StatusFound,
-			wantLink:   "http://who/", // TODO: eventually http://who/?q
+			wantLink:   "http://who/?q=1",
 		},
 		{
 			name:       "simple link with path and query",
-			link:       "/who/p?q",
+			link:       "/who/p?q=1",
 			wantStatus: http.StatusFound,
-			wantLink:   "http://who/p", // TODO: eventually http://who/p?q
+			wantLink:   "http://who/p?q=1",
 		},
 		{
 			name:       "user link",
@@ -282,6 +282,7 @@ func TestExpandLink(t *testing.T) {
 		long      string    // long URL for golink
 		now       time.Time // current time
 		user      string    // current user resolving link
+		query     string    // query string
 		remainder string    // remainder of URL path after golink name
 		wantErr   bool      // whether we expect an error
 		want      string    // expected redirect URL
@@ -372,11 +373,38 @@ func TestExpandLink(t *testing.T) {
 			remainder: "a",
 			want:      "/rel/a",
 		},
-
+		{
+			name:  "query-string",
+			long:  `/rel`,
+			query: "a=b",
+			want:  "/rel?a=b",
+		},
+		{
+			name:      "path-and-query-string",
+			long:      `/rel`,
+			remainder: "path",
+			query:     "a=b",
+			want:      "/rel/path?a=b",
+		},
+		{
+			name:  "combine-query-string",
+			long:  `/rel?a=1`,
+			query: "a=2&b=2",
+			want:  "/rel?a=1&a=2&b=2",
+		},
+		{
+			name:      "template-and-combined-query-string",
+			long:      `/rel{{with .Path}}/{{.}}{{end}}?a=1`,
+			remainder: "path",
+			query:     "b=2",
+			want:      "/rel/path?a=1&b=2",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			link, err := expandLink(tt.long, expandEnv{Now: tt.now, Path: tt.remainder, user: tt.user})
+			query, _ := url.ParseQuery(tt.query)
+			env := expandEnv{Now: tt.now, Path: tt.remainder, user: tt.user, query: query}
+			link, err := expandLink(tt.long, env)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("expandLink(%q) returned error %v; want %v", tt.long, err, tt.wantErr)
 			}

@@ -397,7 +397,8 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	stats.mu.Unlock()
 
 	login, _ := currentUser(r)
-	target, err := expandLink(link.Long, expandEnv{Now: time.Now().UTC(), Path: remainder, user: login})
+	env := expandEnv{Now: time.Now().UTC(), Path: remainder, user: login, query: r.URL.Query()}
+	target, err := expandLink(link.Long, env)
 	if err != nil {
 		log.Printf("expanding %q: %v", link.Long, err)
 		if errors.Is(err, errNoUser) {
@@ -475,6 +476,9 @@ type expandEnv struct {
 	// user is the current user, if any.
 	// For example, "foo@example.com" or "foo@github".
 	user string
+
+	// query is the query parameters from the original request.
+	query url.Values
 }
 
 var errNoUser = errors.New("no user")
@@ -519,6 +523,17 @@ func expandLink(long string, env expandEnv) (*url.URL, error) {
 	u, err := url.Parse(buf.String())
 	if err != nil {
 		return nil, err
+	}
+
+	// add query parameters from original request
+	if len(env.query) > 0 {
+		query := u.Query()
+		for key, values := range env.query {
+			for _, v := range values {
+				query.Add(key, v)
+			}
+		}
+		u.RawQuery = query.Encode()
 	}
 
 	return u, nil

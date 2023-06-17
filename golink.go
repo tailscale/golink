@@ -565,6 +565,10 @@ var currentUser = func(r *http.Request) (string, error) {
 func userExists(ctx context.Context, login string) (bool, error) {
 	const userTaggedDevices = "tagged-devices" // owner of tagged devices
 
+	if login == userTaggedDevices {
+		return false, nil
+	}
+
 	if devMode() {
 		// in dev mode, just assume the user exists
 		return true, nil

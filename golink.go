@@ -605,8 +605,8 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if link.Owner != login {
-		http.Error(w, "cannot delete link owned by another user", http.StatusForbidden)
+	if err := checkLinkOwnership(r.Context(), link, login); err != nil {
+		http.Error(w, fmt.Sprintf("cannot delete link: %v", err), http.StatusForbidden)
 		return
 	}
 
@@ -653,17 +653,9 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
-	if link != nil && link.Owner != "" && link.Owner != login {
-		exists, err := userExists(r.Context(), link.Owner)
-		if err != nil {
-			log.Printf("looking up tailnet user %q: %v", link.Owner, err)
-		}
-		// Don't allow taking over links if the owner account still exists
-		// or if we're unsure because an error occurred.
-		if exists || err != nil {
-			http.Error(w, "not your link; owned by "+link.Owner, http.StatusForbidden)
-			return
-		}
+	if err := checkLinkOwnership(r.Context(), link, login); err != nil {
+		http.Error(w, fmt.Sprintf("cannot update link: %v", err), http.StatusForbidden)
+		return
 	}
 
 	// allow transferring ownership to valid users. If empty, set owner to current user.
@@ -703,6 +695,23 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(link)
 	}
+}
+
+func checkLinkOwnership(ctx context.Context, link *Link, login string) error {
+	if link == nil || link.Owner == "" {
+		return nil
+	}
+
+	linkOwnerExists, err := userExists(ctx, link.Owner)
+	if err != nil {
+		log.Printf("looking up tailnet user %q: %v", link.Owner, err)
+	}
+	// Don't allow deleting or updating links if the owner account still exists
+	// or if we're unsure because an error occurred.
+	if (linkOwnerExists && link.Owner != login) || err != nil {
+		return fmt.Errorf("link owned by user %q", link.Owner)
+	}
+	return nil
 }
 
 // serveExport prints a snapshot of the link database. Links are JSON encoded

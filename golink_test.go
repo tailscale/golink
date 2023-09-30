@@ -125,6 +125,7 @@ func TestServeSave(t *testing.T) {
 	}
 
 	db.Save(&Link{Short: "link-owned-by-tagged-devices", Long: "/before", Owner: "tagged-devices"})
+	db.Save(&Link{Short: "link-owned-by-another-user", Long: "/before", Owner: "foo@example.com"})
 
 	tests := []struct {
 		name              string
@@ -132,6 +133,7 @@ func TestServeSave(t *testing.T) {
 		long              string
 		allowUnknownUsers bool
 		currentUser       func(*http.Request) (string, error)
+		adminlist         []string
 		wantStatus        int
 	}{
 		{
@@ -142,8 +144,8 @@ func TestServeSave(t *testing.T) {
 		},
 		{
 			name:       "missing long",
-			short:      "",
-			long:       "http://who/",
+			short:      "who",
+			long:       "",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -158,6 +160,14 @@ func TestServeSave(t *testing.T) {
 			long:        "http://who/",
 			currentUser: func(*http.Request) (string, error) { return "bar@example.com", nil },
 			wantStatus:  http.StatusForbidden,
+		},
+		{
+			name:        "Allow editing another's link if Admin",
+			short:       "link-owned-by-another-user",
+			long:        "/after",
+			currentUser: func(*http.Request) (string, error) { return "bar@example.com", nil },
+			adminlist:   []string{"bar@example.com"},
+			wantStatus:  http.StatusOK,
 		},
 		{
 			name:        "allow editing link owned by tagged-devices",
@@ -197,6 +207,14 @@ func TestServeSave(t *testing.T) {
 			*allowUnknownUsers = tt.allowUnknownUsers
 			t.Cleanup(func() { *allowUnknownUsers = oldAllowUnknownUsers })
 
+			if tt.adminlist != nil {
+				oldadminlist := adminlist
+				adminlist = tt.adminlist
+				t.Cleanup(func() {
+					adminlist = oldadminlist
+				})
+			}
+
 			r := httptest.NewRequest("POST", "/", strings.NewReader(url.Values{
 				"short": {tt.short},
 				"long":  {tt.long},
@@ -221,9 +239,10 @@ func TestServeDelete(t *testing.T) {
 	db.Save(&Link{Short: "a", Owner: "a@example.com"})
 	db.Save(&Link{Short: "foo", Owner: "foo@example.com"})
 	db.Save(&Link{Short: "link-owned-by-tagged-devices", Long: "/before", Owner: "tagged-devices"})
+	db.Save(&Link{Short: "link-owned-by-another-user", Long: "/before", Owner: "anotheruser@example.com"})
 
-	xsrf := func(short string) string {
-		return xsrftoken.Generate(xsrfKey, "foo@example.com", short)
+	xsrf := func(user, short string) string {
+		return xsrftoken.Generate(xsrfKey, user, short)
 	}
 
 	tests := []struct {
@@ -231,6 +250,7 @@ func TestServeDelete(t *testing.T) {
 		short       string
 		xsrf        string
 		currentUser func(*http.Request) (string, error)
+		adminlist   []string
 		wantStatus  int
 	}{
 		{
@@ -249,21 +269,29 @@ func TestServeDelete(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 		},
 		{
+			name:        "Allow deleting another's link if Admin",
+			short:       "link-owned-by-another-user",
+			currentUser: func(*http.Request) (string, error) { return "bar@example.com", nil },
+			adminlist:   []string{"bar@example.com"},
+			xsrf:        xsrf("bar@example.com", "link-owned-by-another-user"),
+			wantStatus:  http.StatusOK,
+		},
+		{
 			name:       "allow deleting link owned by tagged-devices",
 			short:      "link-owned-by-tagged-devices",
-			xsrf:       xsrf("link-owned-by-tagged-devices"),
+			xsrf:       xsrf("foo@example.com", "link-owned-by-tagged-devices"),
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "invalid xsrf",
 			short:      "foo",
-			xsrf:       xsrf("invalid"),
+			xsrf:       xsrf("foo@example.com", "invalid"),
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "valid xsrf",
 			short:      "foo",
-			xsrf:       xsrf("foo"),
+			xsrf:       xsrf("foo@example.com", "foo"),
 			wantStatus: http.StatusOK,
 		},
 	}
@@ -277,7 +305,15 @@ func TestServeDelete(t *testing.T) {
 					currentUser = oldCurrentUser
 				})
 			}
-
+			
+			if tt.adminlist != nil {
+				oldadminlist := adminlist
+				adminlist = tt.adminlist
+				t.Cleanup(func() {
+					adminlist = oldadminlist
+				})
+			}
+			
 			r := httptest.NewRequest("POST", "/.delete/"+tt.short, strings.NewReader(url.Values{
 				"xsrf": {tt.xsrf},
 			}.Encode()))

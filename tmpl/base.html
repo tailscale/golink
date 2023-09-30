@@ -21,6 +21,7 @@
   </main>
   <footer class="bg-gray-100 border-t border-gray-200 pt-2 pb-2 mt-6">
     <div class="container mx-auto px-4 leading-6 text-right">
+      {{ if .Admins }}<i>Instance Administrators: {{ .Admins }}<br/>{{ end }}
       From the nerds at
       <a href="https://tailscale.com/" class="inline-block align-text-top">
       <svg width="18" height="18" viewBox="0 0 22 22" fill="none" role="img" aria-labelledby="tsTitle" xmlns="http://www.w3.org/2000/svg">

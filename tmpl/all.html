@@ -1,5 +1,5 @@
 {{ define "main" }}
-    <h2 class="text-xl font-bold pt-6 pb-2">All Links ({{ len . }} total)</h2>
+    <h2 class="text-xl font-bold pt-6 pb-2">All Links ({{ len .Links }} total)</h2>
     <table class="table-auto w-full max-w-screen-lg">
       <thead class="border-b border-gray-200 uppercase text-xs text-gray-500 text-left">
         <tr class="flex">
@@ -9,7 +9,7 @@
         </tr>
       </thead>
       <tbody>
-      {{ range . }}
+      {{ range .Links }}
         <tr class="flex hover:bg-gray-100 group border-b border-gray-200">
           <td class="flex-1 p-2">
             <div class="flex">

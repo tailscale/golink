@@ -48,6 +48,7 @@ var (
 	snapshot          = flag.String("snapshot", "", "file path of snapshot file")
 	hostname          = flag.String("hostname", defaultHostname, "service name")
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
+	admins            = flag.String("administrators", "", "comma-separated list of administrator email addresses")
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
 )
 
@@ -71,10 +72,21 @@ var db *SQLiteDB
 
 var localClient *tailscale.LocalClient
 
+// List of administrators emails addresses.
+var adminList []string
+var adminListString string
+
 func Run() error {
 	flag.Parse()
 
 	hostinfo.SetApp("golink")
+
+	// If any admins provided.
+	if *admins != "" {
+		adminList = strings.Split(*admins, ",")
+		adminListString = strings.Join(adminList, ", ")
+		log.Printf("Instance Administrators: %s", adminListString)
+	}
 
 	// if resolving from backup, set sqlitefile and snapshot flags to
 	// restore links into an in-memory sqlite database.
@@ -223,8 +235,20 @@ type visitData struct {
 
 // homeData is the data used by the homeTmpl template.
 type homeData struct {
+	Admins string
 	Short  string
 	Clicks []visitData
+}
+
+type deleteData struct {
+	Admins string
+	Short  string
+	Long   string
+}
+
+type allData struct {
+	Admins string
+	Links  []*Link
 }
 
 var xsrfKey string
@@ -318,6 +342,7 @@ func serveHome(w http.ResponseWriter, short string) {
 	}
 
 	homeTmpl.Execute(w, homeData{
+		Admins: adminListString,
 		Short:  short,
 		Clicks: clicks,
 	})
@@ -338,11 +363,11 @@ func serveAll(w http.ResponseWriter, _ *http.Request) {
 		return links[i].Short < links[j].Short
 	})
 
-	allTmpl.Execute(w, links)
+	allTmpl.Execute(w, allData{Admins: adminListString, Links: links})
 }
 
 func serveHelp(w http.ResponseWriter, _ *http.Request) {
-	helpTmpl.Execute(w, nil)
+	helpTmpl.Execute(w, homeData{Admins: adminListString})
 }
 
 func serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
@@ -420,6 +445,7 @@ func acceptHTML(r *http.Request) bool {
 type detailData struct {
 	// Editable indicates whether the current user can edit the link.
 	Editable bool
+	Admins   string
 	Link     *Link
 	XSRF     string
 }
@@ -457,9 +483,15 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := detailData{Link: link}
-	if link.Owner == login || !ownerExists {
+	data.Admins = adminListString
+	if link.Owner == login || !ownerExists || isAdmin(login) {
 		data.Editable = true
-		data.Link.Owner = login
+		// if we have no valid owner, put the current Admin
+		if !ownerExists {
+			data.Link.Owner = login
+		} else {
+			data.Link.Owner = link.Owner
+		}
 		data.XSRF = xsrftoken.Generate(xsrfKey, login, short)
 	}
 
@@ -561,6 +593,16 @@ var currentUser = func(r *http.Request) (string, error) {
 	return whois.UserProfile.LoginName, nil
 }
 
+// isAdmin checks if the login provided is one of the administrators.
+func isAdmin(login string) bool {
+	for _, adminemail := range adminList {
+		if login == adminemail {
+			return true
+		}
+	}
+	return false
+}
+
 // userExists returns whether a user exists with the specified login in the current tailnet.
 func userExists(ctx context.Context, login string) (bool, error) {
 	const userTaggedDevices = "tagged-devices" // owner of tagged devices
@@ -609,7 +651,10 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := checkLinkOwnership(r.Context(), link, login); err != nil {
+	// Convoluted way to verify if the logged in user is either the owner of the link or an Administrator.
+	isNotTheOwner := checkLinkOwnership(r.Context(), link, login)
+	isAnAdmin := isAdmin(login)
+	if !isAnAdmin && isNotTheOwner != nil {
 		http.Error(w, fmt.Sprintf("cannot delete link: %v", err), http.StatusForbidden)
 		return
 	}
@@ -625,7 +670,7 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	deleteLinkStats(link)
 
-	deleteTmpl.Execute(w, link)
+	deleteTmpl.Execute(w, deleteData{Admins: adminListString, Short: link.Short, Long: link.Long})
 }
 
 // serveSave handles requests to save or update a Link.  Both short name and
@@ -657,7 +702,10 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
-	if err := checkLinkOwnership(r.Context(), link, login); err != nil {
+	// Convoluted way to verify if the logged in user is either the owner of the link or an Administrator.
+	isNotTheOwner := checkLinkOwnership(r.Context(), link, login)
+	isAnAdmin := isAdmin(login)
+	if !isAnAdmin && isNotTheOwner != nil {
 		http.Error(w, fmt.Sprintf("cannot update link: %v", err), http.StatusForbidden)
 		return
 	}
@@ -694,7 +742,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if acceptHTML(r) {
-		successTmpl.Execute(w, homeData{Short: short})
+		successTmpl.Execute(w, homeData{Admins: adminListString, Short: short})
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(link)

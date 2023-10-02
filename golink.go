@@ -73,8 +73,8 @@ var db *SQLiteDB
 var localClient *tailscale.LocalClient
 
 // List of administrators emails addresses.
-var adminlist []string
-var adminliststring string
+var adminList []string
+var adminListString string
 
 func Run() error {
 	flag.Parse()
@@ -83,9 +83,9 @@ func Run() error {
 
 	// If any admins provided.
 	if *admins != "" {
-		adminlist = strings.Split(*admins, ",")
-		adminliststring = strings.Join(adminlist, ", ")
-		log.Printf("Instance Administrators: %s", adminliststring)
+		adminList = strings.Split(*admins, ",")
+		adminListString = strings.Join(adminList, ", ")
+		log.Printf("Instance Administrators: %s", adminListString)
 	}
 
 	// if resolving from backup, set sqlitefile and snapshot flags to
@@ -342,7 +342,7 @@ func serveHome(w http.ResponseWriter, short string) {
 	}
 
 	homeTmpl.Execute(w, homeData{
-		Admins: adminliststring,
+		Admins: adminListString,
 		Short:  short,
 		Clicks: clicks,
 	})
@@ -363,11 +363,11 @@ func serveAll(w http.ResponseWriter, _ *http.Request) {
 		return links[i].Short < links[j].Short
 	})
 
-	allTmpl.Execute(w, allData{Admins: adminliststring, Links: links})
+	allTmpl.Execute(w, allData{Admins: adminListString, Links: links})
 }
 
 func serveHelp(w http.ResponseWriter, _ *http.Request) {
-	helpTmpl.Execute(w, homeData{Admins: adminliststring})
+	helpTmpl.Execute(w, homeData{Admins: adminListString})
 }
 
 func serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
@@ -483,10 +483,15 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := detailData{Link: link}
-	data.Admins = adminliststring
+	data.Admins = adminListString
 	if link.Owner == login || !ownerExists || isAdmin(login) {
 		data.Editable = true
-		data.Link.Owner = link.Owner
+		// if we have no valid owner, put the current Admin
+		if !ownerExists {
+			data.Link.Owner = login
+		} else {
+			data.Link.Owner = link.Owner
+		}
 		data.XSRF = xsrftoken.Generate(xsrfKey, login, short)
 	}
 
@@ -590,7 +595,7 @@ var currentUser = func(r *http.Request) (string, error) {
 
 // isAdmin checks if the login provided is one of the administrators.
 func isAdmin(login string) bool {
-	for _, adminemail := range adminlist {
+	for _, adminemail := range adminList {
 		if login == adminemail {
 			return true
 		}
@@ -665,7 +670,7 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	deleteLinkStats(link)
 
-	deleteTmpl.Execute(w, deleteData{Admins: adminliststring, Short: link.Short, Long: link.Long})
+	deleteTmpl.Execute(w, deleteData{Admins: adminListString, Short: link.Short, Long: link.Long})
 }
 
 // serveSave handles requests to save or update a Link.  Both short name and
@@ -737,7 +742,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if acceptHTML(r) {
-		successTmpl.Execute(w, homeData{Admins: adminliststring, Short: short})
+		successTmpl.Execute(w, homeData{Admins: adminListString, Short: short})
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(link)

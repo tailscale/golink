@@ -133,7 +133,7 @@ func TestServeSave(t *testing.T) {
 		long              string
 		allowUnknownUsers bool
 		currentUser       func(*http.Request) (string, error)
-		adminlist         []string
+		adminList         []string
 		wantStatus        int
 	}{
 		{
@@ -166,7 +166,7 @@ func TestServeSave(t *testing.T) {
 			short:       "link-owned-by-another-user",
 			long:        "/after",
 			currentUser: func(*http.Request) (string, error) { return "bar@example.com", nil },
-			adminlist:   []string{"bar@example.com"},
+			adminList:   []string{"bar@example.com"},
 			wantStatus:  http.StatusOK,
 		},
 		{
@@ -207,11 +207,11 @@ func TestServeSave(t *testing.T) {
 			*allowUnknownUsers = tt.allowUnknownUsers
 			t.Cleanup(func() { *allowUnknownUsers = oldAllowUnknownUsers })
 
-			if tt.adminlist != nil {
-				oldadminlist := adminlist
-				adminlist = tt.adminlist
+			if tt.adminList != nil {
+				oldadminList := adminList
+				adminList = tt.adminList
 				t.Cleanup(func() {
-					adminlist = oldadminlist
+					adminList = oldadminList
 				})
 			}
 
@@ -250,7 +250,7 @@ func TestServeDelete(t *testing.T) {
 		short       string
 		xsrf        string
 		currentUser func(*http.Request) (string, error)
-		adminlist   []string
+		adminList   []string
 		wantStatus  int
 	}{
 		{
@@ -272,7 +272,7 @@ func TestServeDelete(t *testing.T) {
 			name:        "Allow deleting another's link if Admin",
 			short:       "link-owned-by-another-user",
 			currentUser: func(*http.Request) (string, error) { return "bar@example.com", nil },
-			adminlist:   []string{"bar@example.com"},
+			adminList:   []string{"bar@example.com"},
 			xsrf:        xsrf("bar@example.com", "link-owned-by-another-user"),
 			wantStatus:  http.StatusOK,
 		},
@@ -306,11 +306,11 @@ func TestServeDelete(t *testing.T) {
 				})
 			}
 			
-			if tt.adminlist != nil {
-				oldadminlist := adminlist
-				adminlist = tt.adminlist
+			if tt.adminList != nil {
+				oldadminList := adminList
+				adminList = tt.adminList
 				t.Cleanup(func() {
-					adminlist = oldadminlist
+					adminList = oldadminList
 				})
 			}
 			

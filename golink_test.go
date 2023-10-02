@@ -208,10 +208,10 @@ func TestServeSave(t *testing.T) {
 			t.Cleanup(func() { *allowUnknownUsers = oldAllowUnknownUsers })
 
 			if tt.adminList != nil {
-				oldadminList := adminList
+				oldAdminList := adminList
 				adminList = tt.adminList
 				t.Cleanup(func() {
-					adminList = oldadminList
+					adminList = oldAdminList
 				})
 			}
 
@@ -307,10 +307,10 @@ func TestServeDelete(t *testing.T) {
 			}
 			
 			if tt.adminList != nil {
-				oldadminList := adminList
+				oldAdminList := adminList
 				adminList = tt.adminList
 				t.Cleanup(func() {
-					adminList = oldadminList
+					adminList = oldAdminList
 				})
 			}
 			

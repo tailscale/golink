@@ -1,5 +1,5 @@
 FROM --platform=$BUILDPLATFORM cgr.dev/chainguard/wolfi-base as build
-RUN apk update && apk add build-base git openssh go-1.20
+RUN apk update && apk add build-base git openssh go-1.21
 
 WORKDIR /work
 
@@ -9,10 +9,10 @@ RUN go mod download
 COPY . .
 ARG TARGETOS TARGETARCH TARGETVARIANT
 RUN \
-    if [ "${TARGETARCH}" = "arm" ] && [ -n "${TARGETVARIANT}" ]; then \
-      export GOARM="${TARGETVARIANT#v}"; \
-    fi; \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -v ./cmd/golink
+  if [ "${TARGETARCH}" = "arm" ] && [ -n "${TARGETVARIANT}" ]; then \
+  export GOARM="${TARGETVARIANT#v}"; \
+  fi; \
+  GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -v ./cmd/golink
 
 
 FROM cgr.dev/chainguard/static:latest

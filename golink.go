@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -35,6 +34,7 @@ import (
 	"tailscale.com/client/tailscale"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
+	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 )
 
@@ -88,7 +88,7 @@ func Run() error {
 
 	if *sqlitefile == "" {
 		if devMode() {
-			tmpdir, err := ioutil.TempDir("", "golink_dev_*")
+			tmpdir, err := os.MkdirTemp("", "golink_dev_*")
 			if err != nil {
 				return err
 			}
@@ -396,8 +396,8 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	stats.dirty[link.Short]++
 	stats.mu.Unlock()
 
-	login, _ := currentUser(r)
-	env := expandEnv{Now: time.Now().UTC(), Path: remainder, user: login, query: r.URL.Query()}
+	cu, _ := currentUser(r)
+	env := expandEnv{Now: time.Now().UTC(), Path: remainder, user: cu.login, query: r.URL.Query()}
 	target, err := expandLink(link.Long, env)
 	if err != nil {
 		log.Printf("expanding %q: %v", link.Long, err)
@@ -446,21 +446,24 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	login, err := currentUser(r)
+	cu, err := currentUser(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	canEdit := canEditLink(r.Context(), link, cu)
 	ownerExists, err := userExists(r.Context(), link.Owner)
 	if err != nil {
 		log.Printf("looking up tailnet user %q: %v", link.Owner, err)
 	}
 
-	data := detailData{Link: link}
-	if link.Owner == login || !ownerExists {
-		data.Editable = true
-		data.Link.Owner = login
-		data.XSRF = xsrftoken.Generate(xsrfKey, login, short)
+	data := detailData{
+		Link:     link,
+		Editable: canEdit,
+		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, short),
+	}
+	if canEdit && !ownerExists {
+		data.Link.Owner = cu.login
 	}
 
 	detailTmpl.Execute(w, data)
@@ -541,24 +544,42 @@ func expandLink(long string, env expandEnv) (*url.URL, error) {
 
 func devMode() bool { return *dev != "" }
 
+const peerCapName = "tailscale.com/golink"
+
+type capabilities struct {
+	Admin bool `json:"admin"`
+}
+
+type user struct {
+	login   string
+	isAdmin bool
+}
+
 // currentUser returns the Tailscale user associated with the request.
 // In most cases, this will be the user that owns the device that made the request.
 // For tagged devices, the value "tagged-devices" is returned.
 // If the user can't be determined (such as requests coming through a subnet router),
 // an error is returned unless the -allow-unknown-users flag is set.
-var currentUser = func(r *http.Request) (string, error) {
+var currentUser = func(r *http.Request) (user, error) {
 	if devMode() {
-		return "foo@example.com", nil
+		return user{login: "foo@example.com"}, nil
 	}
 	whois, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
 	if err != nil {
 		if *allowUnknownUsers {
 			// Don't report the error if we are allowing unknown users.
-			return "", nil
+			return user{}, nil
 		}
-		return "", err
+		return user{}, err
 	}
-	return whois.UserProfile.LoginName, nil
+	login := whois.UserProfile.LoginName
+	caps, _ := tailcfg.UnmarshalCapJSON[capabilities](whois.CapMap, peerCapName)
+	for _, cap := range caps {
+		if cap.Admin {
+			return user{login: login, isAdmin: true}, nil
+		}
+	}
+	return user{login: login}, nil
 }
 
 // userExists returns whether a user exists with the specified login in the current tailnet.
@@ -597,7 +618,7 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	login, err := currentUser(r)
+	cu, err := currentUser(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -609,12 +630,12 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := checkLinkOwnership(r.Context(), link, login); err != nil {
-		http.Error(w, fmt.Sprintf("cannot delete link: %v", err), http.StatusForbidden)
+	if !canEditLink(r.Context(), link, cu) {
+		http.Error(w, fmt.Sprintf("cannot delete link owned by %q", link.Owner), http.StatusForbidden)
 		return
 	}
 
-	if !xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, login, short) {
+	if !xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, cu.login, short) {
 		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
 		return
 	}
@@ -646,7 +667,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	login, err := currentUser(r)
+	cu, err := currentUser(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -657,8 +678,8 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
-	if err := checkLinkOwnership(r.Context(), link, login); err != nil {
-		http.Error(w, fmt.Sprintf("cannot update link: %v", err), http.StatusForbidden)
+	if !canEditLink(r.Context(), link, cu) {
+		http.Error(w, fmt.Sprintf("cannot update link owned by %q", link.Owner), http.StatusForbidden)
 		return
 	}
 
@@ -674,7 +695,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		owner = login
+		owner = cu.login
 	}
 
 	now := time.Now().UTC()
@@ -701,21 +722,25 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func checkLinkOwnership(ctx context.Context, link *Link, login string) error {
+// canEditLink returns whether the specified user has permission to edit link.
+// Admin users can edit all links.
+// Non-admin users can only edit their own links or links without an active owner.
+func canEditLink(ctx context.Context, link *Link, u user) bool {
 	if link == nil || link.Owner == "" {
-		return nil
+		// new or unowned link
+		return true
 	}
 
-	linkOwnerExists, err := userExists(ctx, link.Owner)
+	if u.isAdmin || link.Owner == u.login {
+		return true
+	}
+
+	owned, err := userExists(ctx, link.Owner)
 	if err != nil {
 		log.Printf("looking up tailnet user %q: %v", link.Owner, err)
 	}
-	// Don't allow deleting or updating links if the owner account still exists
-	// or if we're unsure because an error occurred.
-	if (linkOwnerExists && link.Owner != login) || err != nil {
-		return fmt.Errorf("link owned by user %q", link.Owner)
-	}
-	return nil
+	// Allow editing if the link is currently unowned
+	return err == nil && !owned
 }
 
 // serveExport prints a snapshot of the link database. Links are JSON encoded

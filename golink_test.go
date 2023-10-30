@@ -34,7 +34,7 @@ func TestServeGo(t *testing.T) {
 	tests := []struct {
 		name        string
 		link        string
-		currentUser func(*http.Request) (string, error)
+		currentUser func(*http.Request) (user, error)
 		wantStatus  int
 		wantLink    string
 	}{
@@ -47,7 +47,7 @@ func TestServeGo(t *testing.T) {
 		{
 			name:        "simple link, anonymous request",
 			link:        "/who",
-			currentUser: func(*http.Request) (string, error) { return "", nil },
+			currentUser: func(*http.Request) (user, error) { return user{}, nil },
 			wantStatus:  http.StatusFound,
 			wantLink:    "http://who/",
 		},
@@ -88,7 +88,7 @@ func TestServeGo(t *testing.T) {
 		{
 			name:        "user link, anonymous request",
 			link:        "/me",
-			currentUser: func(*http.Request) (string, error) { return "", nil },
+			currentUser: func(*http.Request) (user, error) { return user{}, nil },
 			wantStatus:  http.StatusUnauthorized,
 		},
 	}
@@ -131,7 +131,7 @@ func TestServeSave(t *testing.T) {
 		short             string
 		long              string
 		allowUnknownUsers bool
-		currentUser       func(*http.Request) (string, error)
+		currentUser       func(*http.Request) (user, error)
 		wantStatus        int
 	}{
 		{
@@ -156,21 +156,28 @@ func TestServeSave(t *testing.T) {
 			name:        "disallow editing another's link",
 			short:       "who",
 			long:        "http://who/",
-			currentUser: func(*http.Request) (string, error) { return "bar@example.com", nil },
+			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com"}, nil },
 			wantStatus:  http.StatusForbidden,
 		},
 		{
 			name:        "allow editing link owned by tagged-devices",
 			short:       "link-owned-by-tagged-devices",
 			long:        "/after",
-			currentUser: func(*http.Request) (string, error) { return "bar@example.com", nil },
+			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com"}, nil },
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "admins can edit any link",
+			short:       "who",
+			long:        "http://who/",
+			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com", isAdmin: true}, nil },
 			wantStatus:  http.StatusOK,
 		},
 		{
 			name:        "disallow unknown users",
 			short:       "who2",
 			long:        "http://who/",
-			currentUser: func(*http.Request) (string, error) { return "", errors.New("") },
+			currentUser: func(*http.Request) (user, error) { return user{}, errors.New("") },
 			wantStatus:  http.StatusInternalServerError,
 		},
 		{
@@ -178,7 +185,7 @@ func TestServeSave(t *testing.T) {
 			short:             "who2",
 			long:              "http://who/",
 			allowUnknownUsers: true,
-			currentUser:       func(*http.Request) (string, error) { return "", nil },
+			currentUser:       func(*http.Request) (user, error) { return user{}, nil },
 			wantStatus:        http.StatusOK,
 		},
 	}
@@ -230,7 +237,7 @@ func TestServeDelete(t *testing.T) {
 		name        string
 		short       string
 		xsrf        string
-		currentUser func(*http.Request) (string, error)
+		currentUser func(*http.Request) (user, error)
 		wantStatus  int
 	}{
 		{
@@ -253,6 +260,13 @@ func TestServeDelete(t *testing.T) {
 			short:      "link-owned-by-tagged-devices",
 			xsrf:       xsrf("link-owned-by-tagged-devices"),
 			wantStatus: http.StatusOK,
+		},
+		{
+			name:        "admin can delete unowned link",
+			short:       "a",
+			currentUser: func(*http.Request) (user, error) { return user{login: "foo@example.com", isAdmin: true}, nil },
+			xsrf:        xsrf("a"),
+			wantStatus:  http.StatusOK,
 		},
 		{
 			name:       "invalid xsrf",
@@ -284,7 +298,7 @@ func TestServeDelete(t *testing.T) {
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 			serveDelete(w, r)
-
+			t.Logf("response body: %v", w.Body.String())
 			if w.Code != tt.wantStatus {
 				t.Errorf("serveDelete(%q) = %d; want %d", tt.short, w.Code, tt.wantStatus)
 			}

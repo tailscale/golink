@@ -70,6 +70,12 @@ func TestServeGo(t *testing.T) {
 			wantLink:   "http://who/p?q=1",
 		},
 		{
+			name:       "simple link with double slash in path",
+			link:       "/who/http://host",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/http://host",
+		},
+		{
 			name:       "user link",
 			link:       "/me",
 			wantStatus: http.StatusFound,
@@ -105,7 +111,7 @@ func TestServeGo(t *testing.T) {
 
 			r := httptest.NewRequest("GET", tt.link, nil)
 			w := httptest.NewRecorder()
-			serveGo(w, r)
+			serveHandler().ServeHTTP(w, r)
 
 			if w.Code != tt.wantStatus {
 				t.Errorf("serveGo(%q) = %d; want %d", tt.link, w.Code, tt.wantStatus)

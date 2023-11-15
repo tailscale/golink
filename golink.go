@@ -425,8 +425,8 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 
 	// http.Redirect always cleans the redirect URL, which we don't always want.
 	// Instead, manually set status and Location header.
-	w.WriteHeader(http.StatusFound)
 	w.Header().Set("Location", target.String())
+	w.WriteHeader(http.StatusFound)
 }
 
 // acceptHTML returns whether the request can accept a text/html response.

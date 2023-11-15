@@ -6,8 +6,8 @@ on:
       - main
   pull_request:
     branches:
-      - '*'
-      - 'release-branch/*'
+      - "*"
+      - "release-branch/*"
 
 concurrency:
   group: ${{ github.workflow }}-$${{ github.head_ref || github.run_id }}

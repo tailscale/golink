@@ -177,7 +177,7 @@ func Run() error {
 	}
 
 	log.Printf("Serving http://%s/ ...", *hostname)
-	if err := http.Serve(l80, nil); err != nil {
+	if err := http.Serve(l80, serveHandler()); err != nil {
 		return err
 	}
 	return nil

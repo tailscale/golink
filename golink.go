@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
@@ -169,18 +170,78 @@ func Run() error {
 	if err := srv.Start(); err != nil {
 		return err
 	}
-	localClient, _ = srv.LocalClient()
 
-	l80, err := srv.Listen("tcp", ":80")
+	// create tsNet server and wait for it to be ready & connected.
+	localClient, _ = srv.LocalClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = srv.Up(ctx)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Serving http://%s/ ...", *hostname)
-	if err := http.Serve(l80, serveHandler()); err != nil {
-		return err
+	enableTLS := len(srv.CertDomains()) > 0
+	if enableTLS {
+		// warm the certificate cache for all cert domains to prevent users waiting
+		// on ACME challenges in-line on their first request.
+		for _, d := range srv.CertDomains() {
+			log.Printf("Provisioning TLS certificate for %s ...", d)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+
+			_, _, err := localClient.CertPair(ctx, d)
+			if err != nil {
+				return err
+			}
+		}
+
+		redirectFqdn := srv.CertDomains()[0]
+		// HTTP listener that redirects to our HTTPS listener.
+		log.Println("Listening on :80")
+		httpListener, err := srv.Listen("tcp", ":80")
+		if err != nil {
+			return err
+		}
+		go func() error {
+			log.Printf("Serving http://%s/ ...", *hostname)
+			if err := http.Serve(httpListener, redirectHandler(redirectFqdn)); err != nil {
+				return err
+			}
+			return nil
+		}()
+
+		log.Println("Listening on :443")
+		httpsListener, err := srv.Listen("tcp", ":443")
+		if err != nil {
+			return err
+		}
+		s := http.Server{
+			Addr:    ":443",
+			Handler: serveHandler(),
+			TLSConfig: &tls.Config{
+				GetCertificate: localClient.GetCertificate,
+			},
+		}
+
+		log.Printf("Serving https://%s/\n", redirectFqdn)
+		if err := s.ServeTLS(httpsListener, "", ""); err != nil {
+			return err
+		}
+		return nil
+	} else {
+		// no TLS, just serve on :80
+		log.Println("Listening on :80")
+		httpListener, err := srv.Listen("tcp", ":80")
+		if err != nil {
+			return err
+		}
+		log.Printf("Serving http://%s/ ...", *hostname)
+		if err := http.Serve(httpListener, serveHandler()); err != nil {
+			return err
+		}
+		return nil
 	}
-	return nil
+
 }
 
 var (
@@ -284,6 +345,16 @@ func deleteLinkStats(link *Link) {
 	stats.mu.Unlock()
 
 	db.DeleteStats(link.Short)
+}
+
+// redirectHandler returns the http.Handler for serving all plaintext HTTP
+// requests. It redirects all requests to the HTTPs version of the same URL.
+func redirectHandler(hostname string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		newUrl := fmt.Sprintf("https://%s%s", hostname, path)
+		http.Redirect(w, r, newUrl, http.StatusMovedPermanently)
+	})
 }
 
 // serverHandler returns the main http.Handler for serving all requests.

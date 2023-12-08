@@ -217,7 +217,7 @@ func Run() error {
 		}
 		s := http.Server{
 			Addr:    ":443",
-			Handler: serveHandler(),
+			Handler: HSTS(serveHandler()),
 			TLSConfig: &tls.Config{
 				GetCertificate: localClient.GetCertificate,
 			},
@@ -354,6 +354,15 @@ func redirectHandler(hostname string) http.Handler {
 		path := r.URL.Path
 		newUrl := fmt.Sprintf("https://%s%s", hostname, path)
 		http.Redirect(w, r, newUrl, http.StatusMovedPermanently)
+	})
+}
+
+// HSTS wraps the provided handler and sets Strict-Transport-Security header on
+// all responses.
+func HSTS(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		h.ServeHTTP(w, r)
 	})
 }
 

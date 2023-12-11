@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/tls"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
@@ -159,6 +158,7 @@ func Run() error {
 		return errors.New("--hostname, if specified, cannot be empty")
 	}
 
+	// create tsNet server and wait for it to be ready & connected.
 	srv := &tsnet.Server{
 		ControlURL: *controlURL,
 		Hostname:   *hostname,
@@ -171,77 +171,65 @@ func Run() error {
 		return err
 	}
 
-	// create tsNet server and wait for it to be ready & connected.
 	localClient, _ = srv.LocalClient()
+out:
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		status, err := srv.Up(ctx)
+		if err == nil && status != nil {
+			break out
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err = srv.Up(ctx)
+	status, err := localClient.Status(ctx)
 	if err != nil {
 		return err
 	}
+	enableTLS := status.Self.HasCap(tailcfg.CapabilityHTTPS)
+	dnsName := status.Self.DNSName
 
-	enableTLS := len(srv.CertDomains()) > 0
+	var httpHandler http.Handler
+	var httpsHandler http.Handler
 	if enableTLS {
-		// warm the certificate cache for all cert domains to prevent users waiting
-		// on ACME challenges in-line on their first request.
-		for _, d := range srv.CertDomains() {
-			log.Printf("Provisioning TLS certificate for %s ...", d)
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			defer cancel()
+		redirectFqdn := strings.TrimSuffix(dnsName, ".")
+		httpHandler = redirectHandler(redirectFqdn)
+		httpsHandler = HSTS(serveHandler())
+	} else {
+		httpHandler = serveHandler()
+		httpsHandler = nil
+	}
 
-			_, _, err := localClient.CertPair(ctx, d)
-			if err != nil {
-				return err
-			}
-		}
-
-		redirectFqdn := srv.CertDomains()[0]
-		// HTTP listener that redirects to our HTTPS listener.
-		log.Println("Listening on :80")
-		httpListener, err := srv.Listen("tcp", ":80")
+	if httpsHandler != nil {
+		log.Println("Listening on :443")
+		httpsListener, err := srv.ListenTLS("tcp", ":443")
 		if err != nil {
 			return err
 		}
 		go func() error {
-			log.Printf("Serving http://%s/ ...", *hostname)
-			if err := http.Serve(httpListener, redirectHandler(redirectFqdn)); err != nil {
+			log.Printf("Serving https://%s/ ...", strings.TrimSuffix(dnsName, "."))
+			if err := http.Serve(httpsListener, httpsHandler); err != nil {
 				return err
 			}
 			return nil
 		}()
-
-		log.Println("Listening on :443")
-		httpsListener, err := srv.Listen("tcp", ":443")
-		if err != nil {
-			return err
-		}
-		s := http.Server{
-			Addr:    ":443",
-			Handler: HSTS(serveHandler()),
-			TLSConfig: &tls.Config{
-				GetCertificate: localClient.GetCertificate,
-			},
-		}
-
-		log.Printf("Serving https://%s/\n", redirectFqdn)
-		if err := s.ServeTLS(httpsListener, "", ""); err != nil {
-			return err
-		}
-		return nil
-	} else {
-		// no TLS, just serve on :80
-		log.Println("Listening on :80")
-		httpListener, err := srv.Listen("tcp", ":80")
-		if err != nil {
-			return err
-		}
-		log.Printf("Serving http://%s/ ...", *hostname)
-		if err := http.Serve(httpListener, serveHandler()); err != nil {
-			return err
-		}
-		return nil
 	}
 
+	// HTTP handler that either serves primary handler or redirects to HTTPS
+	// depending on availability of TLS.
+	log.Println("Listening on :80")
+	httpListener, err := srv.Listen("tcp", ":80")
+	if err != nil {
+		return err
+	}
+	log.Printf("Serving http://%s/ ...", *hostname)
+	if err := http.Serve(httpListener, httpHandler); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 var (
@@ -351,9 +339,7 @@ func deleteLinkStats(link *Link) {
 // requests. It redirects all requests to the HTTPs version of the same URL.
 func redirectHandler(hostname string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		newUrl := fmt.Sprintf("https://%s%s", hostname, path)
-		http.Redirect(w, r, newUrl, http.StatusMovedPermanently)
+		http.Redirect(w, r, (&url.URL{Scheme: "https", Host: hostname, Path: r.URL.Path}).String(), http.StatusMovedPermanently)
 	})
 }
 

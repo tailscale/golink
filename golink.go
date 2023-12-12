@@ -174,53 +174,43 @@ func Run() error {
 	localClient, _ = srv.LocalClient()
 out:
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		upCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		status, err := srv.Up(ctx)
+		status, err := srv.Up(upCtx)
 		if err == nil && status != nil {
 			break out
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	statusCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	status, err := localClient.Status(ctx)
+	status, err := localClient.Status(statusCtx)
 	if err != nil {
 		return err
 	}
 	enableTLS := status.Self.HasCap(tailcfg.CapabilityHTTPS)
-	dnsName := status.Self.DNSName
+	fqdn := strings.TrimSuffix(status.Self.DNSName, ".")
 
-	var httpHandler http.Handler
-	var httpsHandler http.Handler
+	httpHandler := serveHandler()
 	if enableTLS {
-		redirectFqdn := strings.TrimSuffix(dnsName, ".")
-		httpHandler = redirectHandler(redirectFqdn)
-		httpsHandler = HSTS(serveHandler())
-	} else {
-		httpHandler = serveHandler()
-		httpsHandler = nil
-	}
+		httpsHandler := HSTS(httpHandler)
+		httpHandler = redirectHandler(fqdn)
 
-	if httpsHandler != nil {
-		log.Println("Listening on :443")
 		httpsListener, err := srv.ListenTLS("tcp", ":443")
 		if err != nil {
 			return err
 		}
-		go func() error {
-			log.Printf("Serving https://%s/ ...", strings.TrimSuffix(dnsName, "."))
+		log.Println("Listening on :443")
+		go func() {
+			log.Printf("Serving https://%s/ ...", fqdn)
 			if err := http.Serve(httpsListener, httpsHandler); err != nil {
-				return err
+				log.Fatal(err)
 			}
-			return nil
 		}()
 	}
 
-	// HTTP handler that either serves primary handler or redirects to HTTPS
-	// depending on availability of TLS.
-	log.Println("Listening on :80")
 	httpListener, err := srv.Listen("tcp", ":80")
+	log.Println("Listening on :80")
 	if err != nil {
 		return err
 	}

@@ -562,7 +562,7 @@ func expandLink(long string, env expandEnv) (*url.URL, error) {
 
 func devMode() bool { return *dev != "" }
 
-const peerCapName = "tailscale.com/golink"
+const peerCapName = "tailscale.com/cap/golink"
 
 type capabilities struct {
 	Admin bool `json:"admin"`

@@ -524,3 +524,41 @@ func TestResolveLink(t *testing.T) {
 		})
 	}
 }
+
+func TestNoHSTSShortDomain(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Save(&Link{Short: "foobar", Long: "http://foobar/"})
+
+	tests := []struct {
+		host       string
+		expectHsts bool
+	}{
+		{
+			host:       "go",
+			expectHsts: false,
+		},
+		{
+			host:       "go.prawn-universe.ts.net",
+			expectHsts: true,
+		},
+	}
+	for _, tt := range tests {
+		name := "HSTS: " + tt.host
+		t.Run(name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/foobar", nil)
+			r.Header.Add("Host", tt.host)
+
+			w := httptest.NewRecorder()
+			HSTS(serveHandler()).ServeHTTP(w, r)
+
+			_, found := w.Header()["Strict-Transport-Security"]
+			if found != tt.expectHsts {
+				t.Errorf("HSTS expectation: domain %s want: %t got: %t", tt.host, tt.expectHsts, found)
+			}
+		})
+	}
+}

@@ -36,6 +36,7 @@ import (
 	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
+	"tailscale.com/util/dnsname"
 )
 
 const defaultHostname = "go"
@@ -341,8 +342,12 @@ func HSTS(h http.Handler) http.Handler {
 		host, found := r.Header["Host"]
 		if found {
 			host := host[0]
-			if strings.Contains(host, ".") {
-				w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+			fqdn, err := dnsname.ToFQDN(host)
+			if err == nil {
+				segCount := fqdn.NumLabels()
+				if segCount > 1 {
+					w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+				}
 			}
 		}
 		h.ServeHTTP(w, r)

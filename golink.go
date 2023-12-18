@@ -36,6 +36,7 @@ import (
 	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
+	"tailscale.com/util/dnsname"
 )
 
 const defaultHostname = "go"
@@ -158,6 +159,7 @@ func Run() error {
 		return errors.New("--hostname, if specified, cannot be empty")
 	}
 
+	// create tsNet server and wait for it to be ready & connected.
 	srv := &tsnet.Server{
 		ControlURL: *controlURL,
 		Hostname:   *hostname,
@@ -169,17 +171,55 @@ func Run() error {
 	if err := srv.Start(); err != nil {
 		return err
 	}
-	localClient, _ = srv.LocalClient()
 
-	l80, err := srv.Listen("tcp", ":80")
+	localClient, _ = srv.LocalClient()
+out:
+	for {
+		upCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		status, err := srv.Up(upCtx)
+		if err == nil && status != nil {
+			break out
+		}
+	}
+
+	statusCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	status, err := localClient.Status(statusCtx)
 	if err != nil {
 		return err
 	}
+	enableTLS := status.Self.HasCap(tailcfg.CapabilityHTTPS)
+	fqdn := strings.TrimSuffix(status.Self.DNSName, ".")
 
-	log.Printf("Serving http://%s/ ...", *hostname)
-	if err := http.Serve(l80, serveHandler()); err != nil {
+	httpHandler := serveHandler()
+	if enableTLS {
+		httpsHandler := HSTS(httpHandler)
+		httpHandler = redirectHandler(fqdn)
+
+		httpsListener, err := srv.ListenTLS("tcp", ":443")
+		if err != nil {
+			return err
+		}
+		log.Println("Listening on :443")
+		go func() {
+			log.Printf("Serving https://%s/ ...", fqdn)
+			if err := http.Serve(httpsListener, httpsHandler); err != nil {
+				log.Fatal(err)
+			}
+		}()
+	}
+
+	httpListener, err := srv.Listen("tcp", ":80")
+	log.Println("Listening on :80")
+	if err != nil {
 		return err
 	}
+	log.Printf("Serving http://%s/ ...", *hostname)
+	if err := http.Serve(httpListener, httpHandler); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -284,6 +324,34 @@ func deleteLinkStats(link *Link) {
 	stats.mu.Unlock()
 
 	db.DeleteStats(link.Short)
+}
+
+// redirectHandler returns the http.Handler for serving all plaintext HTTP
+// requests. It redirects all requests to the HTTPs version of the same URL.
+func redirectHandler(hostname string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, (&url.URL{Scheme: "https", Host: hostname, Path: r.URL.Path}).String(), http.StatusFound)
+	})
+}
+
+// HSTS wraps the provided handler and sets Strict-Transport-Security header on
+// responses. It inspects the Host header to ensure we do not specify HSTS
+// response on non fully qualified domain name origins.
+func HSTS(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, found := r.Header["Host"]
+		if found {
+			host := host[0]
+			fqdn, err := dnsname.ToFQDN(host)
+			if err == nil {
+				segCount := fqdn.NumLabels()
+				if segCount > 1 {
+					w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+				}
+			}
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // serverHandler returns the main http.Handler for serving all requests.

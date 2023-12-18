@@ -146,3 +146,16 @@ If you're using Firefox, you might want to configure two options to make it easy
     with a value of _true_
 
   * if you use HTTPS-Only Mode, [add an exception](https://support.mozilla.org/en-US/kb/https-only-prefs#w_add-exceptions-for-http-websites-when-youre-in-https-only-mode)
+
+## HTTPS
+
+When golink joins your tailnet it will check to see if HTTPS is enabled and
+begin serving HTTPS traffic it detects that it is. When HTTPS is enabled golink
+will redirect all requests received by the HTTP endpoint first to their internal
+HTTPS equivalent before redirecting to the external link destination.
+
+**NB:** If you use `curl` to interact with the API of a golink instance with HTTPS
+enabled over its HTTP interface you _must_ specify the `-L` flag to follow these
+redirects or else your request will terminate early with an empty response. We
+recommend the use of the `-L` flag in all deployments regardless of current
+HTTPS status to avoid accidental outages should it be enabled in the future.

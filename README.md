@@ -150,7 +150,7 @@ If you're using Firefox, you might want to configure two options to make it easy
 ## HTTPS
 
 When golink joins your tailnet it will check to see if HTTPS is enabled and
-begin serving HTTPS traffic if the answer is yes. If HTTPs is enabled golink
+begin serving HTTPS traffic it detects that it is. When HTTPs is enabled golink
 will redirect all requests received by the HTTP endpoint first to their internal
 HTTPS equivalent before redirecting to the external link destination.
 

@@ -189,7 +189,7 @@ out:
 	if err != nil {
 		return err
 	}
-	enableTLS := status.Self.HasCap(tailcfg.CapabilityHTTPS)
+	enableTLS := status.Self.HasCap(tailcfg.CapabilityHTTPS) && len(srv.CertDomains()) > 0
 	fqdn := strings.TrimSuffix(status.Self.DNSName, ".")
 
 	httpHandler := serveHandler()

@@ -13,4 +13,4 @@ go mod vendor -o "$OUT"
 SHA=$(go run tailscale.com/cmd/nardump --sri "$OUT")
 rm -rf "$OUT"
 
-perl -pi -e "s,vendorSha256 = \".*\"; # SHA based on vendoring go.mod,vendorSha256 = \"$SHA\"; # SHA based on vendoring go.mod," flake.nix
+perl -pi -e "s,vendorHash = \".*\"; # SHA based on vendoring go.mod,vendorHash = \"$SHA\"; # SHA based on vendoring go.mod," flake.nix

@@ -6,9 +6,7 @@ require (
 	github.com/google/go-cmp v0.6.0
 	golang.org/x/net v0.20.0
 	modernc.org/sqlite v1.19.4
-	// Always use a pseudo-version for the tailscale.com module, or else
-	// go's version selection causes problems when pulling golink into corp.
-	tailscale.com v1.1.1-0.20240213184936-256ecd0e8f7c
+	tailscale.com v1.60.1
 )
 
 require (

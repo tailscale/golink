@@ -46,6 +46,7 @@ var (
 	controlURL        = flag.String("control-url", ipn.DefaultControlURL, "the URL base of the control plane (i.e. coordination server)")
 	sqlitefile        = flag.String("sqlitedb", "", "path of SQLite database to store links")
 	dev               = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
+	useHTTPS          = flag.Bool("https", true, "serve golink over HTTPS if enabled on tailnet")
 	snapshot          = flag.String("snapshot", "", "file path of snapshot file")
 	hostname          = flag.String("hostname", defaultHostname, "service name")
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
@@ -189,7 +190,7 @@ out:
 	if err != nil {
 		return err
 	}
-	enableTLS := status.Self.HasCap(tailcfg.CapabilityHTTPS) && len(srv.CertDomains()) > 0
+	enableTLS := *useHTTPS && status.Self.HasCap(tailcfg.CapabilityHTTPS) && len(srv.CertDomains()) > 0
 	fqdn := strings.TrimSuffix(status.Self.DNSName, ".")
 
 	httpHandler := serveHandler()

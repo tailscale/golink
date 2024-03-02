@@ -161,9 +161,10 @@ func Run() error {
 
 	// create tsNet server and wait for it to be ready & connected.
 	srv := &tsnet.Server{
-		ControlURL: *controlURL,
-		Hostname:   *hostname,
-		Logf:       func(format string, args ...any) {},
+		ControlURL:   *controlURL,
+		Hostname:     *hostname,
+		Logf:         func(format string, args ...any) {},
+		RunWebClient: true,
 	}
 	if *verbose {
 		srv.Logf = log.Printf

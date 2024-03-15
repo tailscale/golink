@@ -257,6 +257,7 @@ type visitData struct {
 // homeData is the data used by the homeTmpl template.
 type homeData struct {
 	Short  string
+	Long   string
 	Clicks []visitData
 }
 
@@ -379,7 +380,7 @@ func serveHandler() http.Handler {
 	})
 }
 
-func serveHome(w http.ResponseWriter, short string) {
+func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	var clicks []visitData
 
 	stats.mu.Lock()
@@ -401,8 +402,23 @@ func serveHome(w http.ResponseWriter, short string) {
 		clicks = clicks[:200]
 	}
 
+	var long string
+	if short != "" && localClient != nil {
+		// if a peer exists with the short name, suggest it as the long URL
+		st, err := localClient.Status(r.Context())
+		if err == nil {
+			for _, p := range st.Peer {
+				if host, _, ok := strings.Cut(p.DNSName, "."); ok && host == short {
+					long = "http://" + host + "/"
+					break
+				}
+			}
+		}
+	}
+
 	homeTmpl.Execute(w, homeData{
 		Short:  short,
+		Long:   long,
 		Clicks: clicks,
 	})
 }
@@ -442,7 +458,7 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		switch r.Method {
 		case "GET":
-			serveHome(w, "")
+			serveHome(w, r, "")
 		case "POST":
 			serveSave(w, r)
 		}
@@ -460,7 +476,7 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	link, err := db.Load(short)
 	if errors.Is(err, fs.ErrNotExist) {
 		w.WriteHeader(http.StatusNotFound)
-		serveHome(w, short)
+		serveHome(w, r, short)
 		return
 	}
 	if err != nil {

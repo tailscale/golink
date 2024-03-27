@@ -4,6 +4,7 @@
     <p class="py-4">Deleted this by mistake? You can recreate the same link below.</p>
 
     <form method="POST" action="/">
+      <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
       <div class="flex flex-wrap">
         <div class="flex">
           <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://go/</label>

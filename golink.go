@@ -563,6 +563,11 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if short != link.Short {
+		// redirect to canonical short name
+		http.Redirect(w, r, "/.detail/"+link.Short, http.StatusFound)
+		return
+	}
 	if err != nil {
 		log.Printf("serving detail %q: %v", short, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -591,7 +596,7 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 	data := detailData{
 		Link:     link,
 		Editable: canEdit,
-		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, short),
+		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, link.Short),
 	}
 	if canEdit && !ownerExists {
 		data.Link.Owner = cu.login
@@ -777,7 +782,7 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 	// want to enable deletion via CLI and to honor allowUnknownUsers for
 	// deletion, we could change the below to a call to isRequestAuthorized. For
 	// now, always require the XSRF token, thus maintaining the status quo.
-	if !xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, cu.login, short) {
+	if !xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, cu.login, link.Short) {
 		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
 		return
 	}
@@ -829,7 +834,14 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !isRequestAuthorized(r, cu, short) {
+	// short name to use for XSRF token.
+	// For new link creation, the special newShortName value is used.
+	tokenShortName := newShortName
+	if link != nil {
+		tokenShortName = link.Short
+	}
+
+	if !isRequestAuthorized(r, cu, tokenShortName) {
 		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
 		return
 	}
@@ -978,12 +990,5 @@ func isRequestAuthorized(r *http.Request, u user, short string) bool {
 		return true
 	}
 
-	// If the request is to create a new link, test the XSRF token against
-	// newShortName instead of short.
-	tokenShortName := short
-	_, err := db.Load(short)
-	if r.URL.Path == "/" && r.Method == http.MethodPost && errors.Is(err, fs.ErrNotExist) {
-		tokenShortName = newShortName
-	}
-	return xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, u.login, tokenShortName)
+	return xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, u.login, short)
 }

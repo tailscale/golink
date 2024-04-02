@@ -121,6 +121,50 @@ destination="/home/nonroot"
 
 </details>
 
+## Permissions
+
+By default, users own the links they create and only they can update or delete those links.
+Ownership can be transferred to another user from the link edit page.
+Links whose owner is no longer part of the tailnet can be edited by any user,
+at which point that user will become the new owner.
+
+Users can be granted admin access to edit all links using [ACL grants] in your tailnet policy file.
+For example, if you have your golink instance tagged with `tag:golink` and a user group named `group:golink-admins`,
+you can grant them admin access using:
+
+```json
+{
+  "grants": [{
+      "src": ["group:golink-admins"],
+      "dst": ["tag:golink"],
+      "app": {
+        "tailscale.com/cap/golink": [{
+            "admin": true
+        }]
+      }
+  }]
+}
+```
+
+Or if you want to effectively disable the ownership model and allow everyone in your tailnet to edit all links,
+you could assign the grant to `autogroup:member`:
+
+```json
+{
+  "grants": [{
+      "src": ["autogroup:member"],
+      "dst": ["tag:golink"],
+      "app": {
+        "tailscale.com/cap/golink": [{
+            "admin": true
+        }]
+      }
+  }]
+}
+```
+
+[ACL grants]: https://tailscale.com/kb/1324/acl-grants
+
 ## Backups
 
 Once you have golink running, you can backup all of your links in [JSON lines] format from <http://go/.export>.

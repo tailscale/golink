@@ -1351,6 +1351,11 @@ select {
   border-color: rgb(178 45 48 / var(--tw-border-opacity));
 }
 
+.border-orange-50 {
+  --tw-border-opacity: 1;
+  border-color: rgb(254 227 192 / var(--tw-border-opacity));
+}
+
 .bg-gray-100 {
   --tw-bg-opacity: 1;
   background-color: rgb(247 245 244 / var(--tw-bg-opacity));
@@ -1364,6 +1369,11 @@ select {
 .bg-red-500 {
   --tw-bg-opacity: 1;
   background-color: rgb(178 45 48 / var(--tw-bg-opacity));
+}
+
+.bg-orange-0 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(255 250 238 / var(--tw-bg-opacity));
 }
 
 .p-2 {
@@ -1388,6 +1398,11 @@ select {
 .py-4 {
   padding-top: 1rem;
   padding-bottom: 1rem;
+}
+
+.py-3 {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
 }
 
 .pt-6 {

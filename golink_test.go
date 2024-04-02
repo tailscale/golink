@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.org/x/net/xsrftoken"
+	"tailscale.com/types/ptr"
 	"tailscale.com/util/must"
 )
 
@@ -354,6 +355,47 @@ func TestServeDelete(t *testing.T) {
 				t.Errorf("serveDelete(%q) = %d; want %d", tt.short, w.Code, tt.wantStatus)
 			}
 		})
+	}
+}
+
+func TestReadOnlyMode(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Save(&Link{Short: "who", Long: "http://who/"})
+
+	oldReadOnly := readonly
+	readonly = ptr.To(true)
+	defer func() { readonly = oldReadOnly }()
+
+	// resolving link should succeed
+	r := httptest.NewRequest("GET", "/who", nil)
+	w := httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+	if want := http.StatusFound; w.Code != want {
+		t.Errorf("serveHandler() = %d; want %d", w.Code, want)
+	}
+	wantLocation := "http://who/"
+	if location := w.Header().Get("Location"); location != wantLocation {
+		t.Errorf("serveHandler() location = %v; want %v", location, wantLocation)
+	}
+
+	// updating link should fail
+	r = httptest.NewRequest("POST", "/", nil)
+	w = httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+	if want := http.StatusMethodNotAllowed; w.Code != want {
+		t.Errorf("serveHandler() = %d; want %d", w.Code, want)
+	}
+
+	// deleting link should fail
+	r = httptest.NewRequest("POST", "/.delete/who", nil)
+	w = httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+	if want := http.StatusMethodNotAllowed; w.Code != want {
+		t.Errorf("serveHandler() = %d; want %d", w.Code, want)
 	}
 }
 

@@ -65,6 +65,7 @@ var (
 	configDir         = flag.String("config-dir", "", `tsnet configuration directory ("" to use default)`)
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
+	readonly          = flag.Bool("readonly", false, "start golink server in read-only mode")
 )
 
 var stats struct {
@@ -271,10 +272,11 @@ type visitData struct {
 
 // homeData is the data used by homeTmpl.
 type homeData struct {
-	Short  string
-	Long   string
-	Clicks []visitData
-	XSRF   string
+	Short    string
+	Long     string
+	Clicks   []visitData
+	XSRF     string
+	ReadOnly bool
 }
 
 // deleteData is the data used by deleteTmpl.
@@ -479,10 +481,11 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		return
 	}
 	homeTmpl.Execute(w, homeData{
-		Short:  short,
-		Long:   long,
-		Clicks: clicks,
-		XSRF:   xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+		Short:    short,
+		Long:     long,
+		Clicks:   clicks,
+		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+		ReadOnly: *readonly,
 	})
 }
 
@@ -798,6 +801,10 @@ func userExists(ctx context.Context, login string) (bool, error) {
 var reShortName = regexp.MustCompile(`^\w[\w\-\.]*$`)
 
 func serveDelete(w http.ResponseWriter, r *http.Request) {
+	if *readonly {
+		http.Error(w, "golink is in read-only mode", http.StatusMethodNotAllowed)
+		return
+	}
 	short := strings.TrimPrefix(r.URL.Path, "/.delete/")
 	if short == "" {
 		http.Error(w, "short required", http.StatusBadRequest)
@@ -848,6 +855,10 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 // long URL are validated for proper format. Existing links may only be updated
 // by their owner.
 func serveSave(w http.ResponseWriter, r *http.Request) {
+	if *readonly {
+		http.Error(w, "golink is in read-only mode", http.StatusMethodNotAllowed)
+		return
+	}
 	short, long := r.FormValue("short"), r.FormValue("long")
 	if short == "" || long == "" {
 		http.Error(w, "short and long required", http.StatusBadRequest)
@@ -934,6 +945,9 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 // Admin users can edit all links.
 // Non-admin users can only edit their own links or links without an active owner.
 func canEditLink(ctx context.Context, link *Link, u user) bool {
+	if *readonly {
+		return false
+	}
 	if link == nil || link.Owner == "" {
 		// new or unowned link
 		return true

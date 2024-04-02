@@ -129,12 +129,19 @@ func TestServeSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	db.Save(&Link{Short: "link-owned-by-tagged-devices", Long: "/before", Owner: "tagged-devices"})
+
+	fooXSRF := func(short string) string {
+		return xsrftoken.Generate(xsrfKey, "foo@example.com", short)
+	}
+	barXSRF := func(short string) string {
+		return xsrftoken.Generate(xsrfKey, "bar@example.com", short)
+	}
 
 	tests := []struct {
 		name              string
 		short             string
+		xsrf              string
 		long              string
 		allowUnknownUsers bool
 		currentUser       func(*http.Request) (user, error)
@@ -155,12 +162,14 @@ func TestServeSave(t *testing.T) {
 		{
 			name:       "save simple link",
 			short:      "who",
+			xsrf:       fooXSRF(newShortName),
 			long:       "http://who/",
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:        "disallow editing another's link",
 			short:       "who",
+			xsrf:        barXSRF("who"),
 			long:        "http://who/",
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com"}, nil },
 			wantStatus:  http.StatusForbidden,
@@ -168,6 +177,7 @@ func TestServeSave(t *testing.T) {
 		{
 			name:        "allow editing link owned by tagged-devices",
 			short:       "link-owned-by-tagged-devices",
+			xsrf:        barXSRF("link-owned-by-tagged-devices"),
 			long:        "/after",
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com"}, nil },
 			wantStatus:  http.StatusOK,
@@ -175,6 +185,7 @@ func TestServeSave(t *testing.T) {
 		{
 			name:        "admins can edit any link",
 			short:       "who",
+			xsrf:        barXSRF("who"),
 			long:        "http://who/",
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com", isAdmin: true}, nil },
 			wantStatus:  http.StatusOK,
@@ -182,6 +193,7 @@ func TestServeSave(t *testing.T) {
 		{
 			name:        "disallow unknown users",
 			short:       "who2",
+			xsrf:        fooXSRF("who2"),
 			long:        "http://who/",
 			currentUser: func(*http.Request) (user, error) { return user{}, errors.New("") },
 			wantStatus:  http.StatusInternalServerError,
@@ -193,6 +205,13 @@ func TestServeSave(t *testing.T) {
 			allowUnknownUsers: true,
 			currentUser:       func(*http.Request) (user, error) { return user{}, nil },
 			wantStatus:        http.StatusOK,
+		},
+		{
+			name:       "invalid xsrf",
+			short:      "goat",
+			xsrf:       fooXSRF("sheep"),
+			long:       "https://goat.example.com/goat.php?goat=true",
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -213,6 +232,7 @@ func TestServeSave(t *testing.T) {
 			r := httptest.NewRequest("POST", "/", strings.NewReader(url.Values{
 				"short": {tt.short},
 				"long":  {tt.long},
+				"xsrf":  {tt.xsrf},
 			}.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
@@ -252,7 +272,7 @@ func TestServeDelete(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "non-existant link",
+			name:       "nonexistent link",
 			short:      "does-not-exist",
 			wantStatus: http.StatusNotFound,
 		},

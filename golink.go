@@ -119,6 +119,24 @@ func Run() error {
 		return fmt.Errorf("NewSQLiteDB(%q): %w", *sqlitefile, err)
 	}
 
+	seedJson := os.Getenv("GOLINK_SEED_JSON")
+
+	if seedJson != "" {
+		log.Println("seeding the db with json")
+
+		var seedDbJson seedDbJson
+		if err := json.Unmarshal([]byte(seedJson), &seedDbJson); err != nil {
+			return fmt.Errorf("failed to parse seed json: %v", err)
+		}
+
+		for _, link := range seedDbJson.Links {
+			log.Printf("adding link with short `%s\n`", link.Short)
+			if err := db.Save(&link); err != nil {
+				log.Fatal("failed to add seed link")
+			}
+		}
+	}
+
 	if *snapshot != "" {
 		if LastSnapshot != nil {
 			log.Printf("LastSnapshot already set; ignoring --snapshot")
@@ -280,6 +298,10 @@ type deleteData struct {
 	Short string
 	Long  string
 	XSRF  string
+}
+
+type seedDbJson struct {
+	Links []Link `json:"links"`
 }
 
 var xsrfKey string
@@ -525,6 +547,7 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 
 	cu, _ := currentUser(r)
 	env := expandEnv{Now: time.Now().UTC(), Path: remainder, user: cu.login, query: r.URL.Query()}
+
 	target, err := expandLink(link.Long, env)
 	if err != nil {
 		log.Printf("expanding %q: %v", link.Long, err)
@@ -645,6 +668,32 @@ func expandLink(long string, env expandEnv) (*url.URL, error) {
 			long += "{{with .Path}}/{{.}}{{end}}"
 		}
 	}
+
+	// Here, we replace any string of the form @foo@ in the underlying URL
+	// with the value of foo=... in the query params. Thus, the URL
+	// https://example.com/@thing@ would be transformed into
+	// https://example.com/replaced if thing=replaced is supplied as a query
+	// param.
+	for key, values := range env.query {
+		// Here, we detect if the original URL contains a pattern of @${key}@. If so,
+		// we substitute it and remove it from the query params to be passed on.
+		// Otherwise we ignore it in this iterator.
+		pattern := fmt.Sprintf("@%s@", key)
+
+		if strings.Contains(long, pattern) {
+			// If subsitution is happening, removing the param from those to be passed
+			// on to the final URL
+			env.query.Del(key)
+
+			// Here, we perform the substitution for each value of the param.
+			// In general, we should avoid substitutions with multiple values like
+			// foo=bar,baz, as baz here would have no effect.
+			for _, value := range values {
+				long = strings.Replace(long, pattern, value, -1)
+			}
+		}
+	}
+
 	tmpl, err := texttemplate.New("").Funcs(expandFuncMap).Parse(long)
 	if err != nil {
 		return nil, err

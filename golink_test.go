@@ -30,6 +30,7 @@ func TestServeGo(t *testing.T) {
 	db.Save(&Link{Short: "who", Long: "http://who/"})
 	db.Save(&Link{Short: "me", Long: "/who/{{.User}}"})
 	db.Save(&Link{Short: "invalid-var", Long: "/who/{{.Invalid}}"})
+	db.Save(&Link{Short: "substitutable", Long: "https://example.com/@replace_me@"})
 
 	tests := []struct {
 		name        string
@@ -96,6 +97,18 @@ func TestServeGo(t *testing.T) {
 			link:        "/me",
 			currentUser: func(*http.Request) (user, error) { return user{}, nil },
 			wantStatus:  http.StatusUnauthorized,
+		},
+		{
+			name:       "apply substitute",
+			link:       "/substitutable?replace_me=foo",
+			wantStatus: http.StatusFound,
+			wantLink:   "https://example.com/foo",
+		},
+		{
+			name:       "apply substitute and pass through other params",
+			link:       "/substitutable?baq=baz&foo=bar&replace_me=something",
+			wantStatus: http.StatusFound,
+			wantLink:   "https://example.com/something?baq=baz&foo=bar",
 		},
 	}
 

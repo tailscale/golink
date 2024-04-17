@@ -20,11 +20,11 @@ import (
 
 // Link is the structure stored for each go short link.
 type Link struct {
-	Short    string // the "foo" part of http://go/foo
-	Long     string // the target URL or text/template pattern to run
-	Created  time.Time
-	LastEdit time.Time // when the link was last edited
-	Owner    string    // user@domain
+	Short    string    `json:"short"` // the "foo" part of http://go/foo
+	Long     string    `json:"long"`  // the target URL or text/template pattern to run
+	Created  time.Time `json:"created"`
+	LastEdit time.Time `json:"last_edit"` // when the link was last edited
+	Owner    string    `json:"owner"`     // user@domain
 }
 
 // ClickStats is the number of clicks a set of links have received in a given

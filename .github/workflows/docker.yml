@@ -57,9 +57,9 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
 
       # Sign the Docker image
-      - name: Install cosign
-        if: github.event_name == 'push'
-        uses: sigstore/cosign-installer@1fc5bd396d372bee37d608f955b336615edf79c8 #v3.2.0
-      - name: Sign the published Docker image
-        if: github.event_name == 'push'
-        run: cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+      # - name: Install cosign
+      #   if: github.event_name == 'push'
+      #   uses: sigstore/cosign-installer@1fc5bd396d372bee37d608f955b336615edf79c8 #v3.2.0
+      # - name: Sign the published Docker image
+      #   if: github.event_name == 'push'
+      #   run: cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}

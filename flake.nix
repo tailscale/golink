@@ -17,14 +17,13 @@
         if (self ? shortRev)
         then self.shortRev
         else "dev";
-    in
-    {
+
       overlay = final: prev:
         let
           pkgs = nixpkgs.legacyPackages.${prev.system};
         in
-        rec {
-          golink = pkgs.buildGo122Module rec {
+        {
+          golink = pkgs.buildGo122Module {
             pname = "golink";
             version = golinkVersion;
             src = pkgs.nix-gitignore.gitignoreSource [ ] ./.;
@@ -32,33 +31,39 @@
             vendorHash = "sha256-PWeQNlIMvhGAFDVwN8fp0B11Loi6zbm1Pds/CKLeuvA="; # SHA based on vendoring go.mod
           };
         };
-    }
-    // flake-utils.lib.eachDefaultSystem
+    in
+    flake-utils.lib.eachDefaultSystem
       (system:
       let
         pkgs = import nixpkgs {
-          overlays = [ self.overlay ];
           inherit system;
+          overlays = [ overlay ];
         };
       in
       rec {
         # `nix develop`
-        devShell = pkgs.mkShell { buildInputs = [ pkgs.go_1_21 ]; };
+        devShells.default = pkgs.mkShell {
+          packages = [
+            pkgs.go_1_22
+            pkgs.nodejs-slim
+            pkgs.yarn
+          ];
+          buildInputs = [ pkgs.go_1_22 ];
+        };
 
         # `nix build`
         packages = with pkgs; {
           inherit golink;
+          default = golink;
         };
-
-        defaultPackage = pkgs.golink;
 
         # `nix run`
         apps.golink = flake-utils.lib.mkApp {
           drv = packages.golink;
         };
-        defaultApp = apps.golink;
+        apps.default = apps.golink;
 
-        overlays.default = self.overlay;
+        overlays = overlay;
       })
     // {
       nixosModules.default =

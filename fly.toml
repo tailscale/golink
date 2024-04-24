@@ -1,0 +1,14 @@
+# fly.toml app configuration file generated for golinkds on 2024-04-17T21:54:33-04:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'golinkds'
+primary_region = 'bos'
+
+[build]
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1

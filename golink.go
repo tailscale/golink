@@ -629,6 +629,12 @@ var expandFuncMap = texttemplate.FuncMap{
 	"PathEscape":  url.PathEscape,
 	"QueryEscape": url.QueryEscape,
 	"TrimSuffix":  strings.TrimSuffix,
+	"Match":       regexMatch,
+}
+
+func regexMatch(pattern string, s string) bool {
+	b, _ := regexp.MatchString(pattern, s)
+	return b
 }
 
 // expandLink returns the expanded long URL to redirect to, executing any

@@ -418,6 +418,18 @@ func TestExpandLink(t *testing.T) {
 			want:      "http://host.com/a",
 		},
 		{
+			name:      "template-with-match-func",
+			long:      `http://host.com/{{if Match "\\d+" .Path}}id/{{.Path}}{{else}}search/{{.Path}}{{end}}`,
+			remainder: "123",
+			want:      "http://host.com/id/123",
+		},
+		{
+			name:      "template-with-match-func2",
+			long:      `http://host.com/{{if Match "\\d+" .Path}}id/{{.Path}}{{else}}search/{{.Path}}{{end}}`,
+			remainder: "query",
+			want:      "http://host.com/search/query",
+		},
+		{
 			name:      "relative-link",
 			long:      `rel`,
 			remainder: "a",

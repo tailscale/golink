@@ -43,7 +43,7 @@
       in
       rec {
         # `nix develop`
-        devShell = pkgs.mkShell { buildInputs = [ pkgs.go_1_21 pkgs.flyctl ]; };
+        devShell = pkgs.mkShell { buildInputs = [ pkgs.go_1_22 pkgs.flyctl ]; };
 
         # `nix build`
         packages = with pkgs; {

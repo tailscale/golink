@@ -827,6 +827,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	link, err := db.Load(short)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if !canEditLink(r.Context(), link, cu) {

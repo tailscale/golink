@@ -41,26 +41,36 @@ module.exports = {
         800: "rgba(90, 0, 0)",
         900: "rgba(66, 0, 0)",
       },
-      white: '#fff',
-      current: 'currentColor',
+      orange: {
+        0: "rgba(255, 250, 238)",
+        50: "rgba(254, 227, 192)",
+        100: "rgba(248, 184, 134)",
+        200: "rgba(245, 146, 94)",
+        300: "rgba(229, 111, 74)",
+        400: "rgba(196, 76, 52)",
+        500: "rgba(158, 47, 40)",
+        600: "rgba(126, 30, 35)",
+        700: "rgba(93, 22, 27)",
+        800: "rgba(66, 14, 17)",
+        900: "rgba(66, 14, 17)",
+      },
+      white: "#fff",
+      current: "currentColor",
     },
     extend: {
       typography: {
         DEFAULT: {
           css: {
-            'code::before': {
-              'content': '',
+            "code::before": {
+              content: "",
             },
-            'code::after': {
-              'content': '',
+            "code::after": {
+              content: "",
             },
           },
         },
       },
     },
   },
-  plugins: [
-    require('@tailwindcss/forms'),
-    require('@tailwindcss/typography'),
-  ],
-}
+  plugins: [require("@tailwindcss/forms"), require("@tailwindcss/typography")],
+};

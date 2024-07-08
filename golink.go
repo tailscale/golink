@@ -269,17 +269,28 @@ type visitData struct {
 
 // homeData is the data used by homeTmpl.
 type homeData struct {
-	Short  string
-	Long   string
-	Clicks []visitData
-	XSRF   string
+	Hostname string
+	Short    string
+	Long     string
+	Clicks   []visitData
+	XSRF     string
+}
+
+type helpData struct {
+	Hostname string
+}
+
+type allData struct {
+	Hostname string
+	Links    []*Link
 }
 
 // deleteData is the data used by deleteTmpl.
 type deleteData struct {
-	Short string
-	Long  string
-	XSRF  string
+	Hostname string
+	Short    string
+	Long     string
+	XSRF     string
 }
 
 var xsrfKey string
@@ -443,10 +454,11 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		return
 	}
 	homeTmpl.Execute(w, homeData{
-		Short:  short,
-		Long:   long,
-		Clicks: clicks,
-		XSRF:   xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+		Hostname: *hostname,
+		Short:    short,
+		Long:     long,
+		Clicks:   clicks,
+		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
 	})
 }
 
@@ -465,11 +477,11 @@ func serveAll(w http.ResponseWriter, _ *http.Request) {
 		return links[i].Short < links[j].Short
 	})
 
-	allTmpl.Execute(w, links)
+	allTmpl.Execute(w, allData{Links: links, Hostname: *hostname})
 }
 
 func serveHelp(w http.ResponseWriter, _ *http.Request) {
-	helpTmpl.Execute(w, nil)
+	helpTmpl.Execute(w, helpData{Hostname: *hostname})
 }
 
 func serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
@@ -549,6 +561,7 @@ func acceptHTML(r *http.Request) bool {
 
 // detailData is the data used by the detailTmpl template.
 type detailData struct {
+	Hostname string
 	// Editable indicates whether the current user can edit the link.
 	Editable bool
 	Link     *Link
@@ -594,6 +607,7 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := detailData{
+		Hostname: *hostname,
 		Link:     link,
 		Editable: canEdit,
 		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, link.Short),
@@ -794,9 +808,10 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 	deleteLinkStats(link)
 
 	deleteTmpl.Execute(w, deleteData{
-		Short: link.Short,
-		Long:  link.Long,
-		XSRF:  xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+		Hostname: *hostname,
+		Short:    link.Short,
+		Long:     link.Long,
+		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
 	})
 }
 
@@ -879,7 +894,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if acceptHTML(r) {
-		successTmpl.Execute(w, homeData{Short: short})
+		successTmpl.Execute(w, homeData{Short: short, Hostname: *hostname})
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(link)

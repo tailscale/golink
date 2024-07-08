@@ -2,12 +2,12 @@
     <h2 class="text-xl font-bold pb-2">Create a new link</h2>
 
     {{ with .Long }}
-    <p class="">Did you mean <a class="text-blue-600 hover:underline" href="{{.}}">{{.}}</a> ? Create a go link for it now:</p>
+    <p class="">Did you mean <a class="text-blue-600 hover:underline" href="{{.}}">{{.}}</a> ? Create a {{.Hostname}} link for it now:</p>
     {{ end }}
     <form method="POST" action="/" class="flex flex-wrap">
       <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
       <div class="flex">
-        <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://go/</label>
+        <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{.Hostname}}/</label>
         <input id=short name=short required type=text size=15 placeholder="shortname" value="{{.Short}}" pattern="\w[\w\-\.]*" title="Must start with letter or number; may contain letters, numbers, dashes, and periods."
           class="p-2 my-2 rounded-r-md border-gray-300 placeholder:text-gray-400">
         <span class="flex m-2 items-center">&rarr;</span>
@@ -29,7 +29,7 @@
       {{range .Clicks}}
         <tr class="hover:bg-gray-100 group border-b border-gray-200">
           <td class="flex">
-            <a class="block flex-1 p-2 pr-4 hover:text-blue-500 hover:underline" href="/{{.Short}}">go/{{.Short}}</a>
+            <a class="block flex-1 p-2 pr-4 hover:text-blue-500 hover:underline" href="/{{.Short}}">{{.Hostname}}/{{.Short}}</a>
             <a class="flex items-center px-2 invisible group-hover:visible" title="Link Details" href="/.detail/{{.Short}}">
               <svg class="hover:fill-blue-500" xmlns="http://www.w3.org/2000/svg" height="1.3em" viewBox="0 0 24 24" width="1.3em" fill="#000000" stroke-width="2"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
             </a>

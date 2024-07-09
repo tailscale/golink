@@ -6,7 +6,7 @@
       <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
       <div class="flex flex-wrap">
         <div class="flex">
-          <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{ .Hostname }}/</label>
+          <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{go}}/</label>
           <input id=short name=short required type=text size=15 placeholder="shortname" value="{{.Link.Short}}" pattern="\w[\w\-\.]*" title="Must start with letter or number; may contain letters, numbers, dashes, and periods."
             class="p-2 my-2 rounded-r-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
           <span class="flex m-2 items-center">&rarr;</span>
@@ -40,7 +40,7 @@
     {{ else }}
     <dl>
       <dt class="text-sm font-bold mt-6">Name</dt>
-      <dd><a class="text-blue-600 hover:underline" href="/{{.Link.Short}}">{{.Hostname}}/{{.Link.Short}}</a></dd>
+      <dd><a class="text-blue-600 hover:underline" href="/{{.Link.Short}}">{{go}}/{{.Link.Short}}</a></dd>
 
       <dt class="text-sm font-bold mt-6">Destination</dt>
       <dd>{{.Link.Long}}</dd>

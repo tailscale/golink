@@ -19,8 +19,16 @@ Some notes on short names:
 <p>
 In simple cases, the destination link is an absolute URL, such as <strong>https://www.google.com/</strong>.
 
-<p>
-<img width=737 height=62 class="mx-4" src="/.static/images/create-link.png">
+<!-- example non-functional form -->
+<div class="flex flex-wrap mx-4">
+  <div class="flex">
+    <label class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{go}}/</label>
+    <input disabled type=text size=15 value="search" class="p-2 my-2 rounded-r-md border-gray-300">
+    <span class="flex m-2 items-center">&rarr;</span>
+  </div>
+  <input disabled type=text size=30 value="https://www.google.com/" class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300">
+  <button disabled type=submit class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Create</button>
+</div>
 
 <h2>Resolving links</h2>
 

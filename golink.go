@@ -285,17 +285,39 @@ type deleteData struct {
 var xsrfKey string
 
 func init() {
-	homeTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/home.html"))
-	detailTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/detail.html"))
-	successTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/success.html"))
-	helpTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/help.html"))
-	allTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/all.html"))
-	deleteTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/delete.html"))
-	opensearchTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/opensearch.xml"))
+	homeTmpl = newTemplate("base.html", "home.html")
+	detailTmpl = newTemplate("base.html", "detail.html")
+	successTmpl = newTemplate("base.html", "success.html")
+	helpTmpl = newTemplate("base.html", "help.html")
+	allTmpl = newTemplate("base.html", "all.html")
+	deleteTmpl = newTemplate("base.html", "delete.html")
+	opensearchTmpl = newTemplate("opensearch.xml")
 
 	b := make([]byte, 24)
 	rand.Read(b)
 	xsrfKey = base64.StdEncoding.EncodeToString(b)
+}
+
+var tmplFuncs = template.FuncMap{
+	"go": func() string {
+		return *hostname
+	},
+}
+
+// newTemplate creates a new template with the specified files in the tmpl directory.
+// The first file name is used as the template name,
+// and tmplFuncs are registered as available funcs.
+// This func panics if unable to parse files.
+func newTemplate(files ...string) *template.Template {
+	if len(files) == 0 {
+		return nil
+	}
+	tf := make([]string, 0, len(files))
+	for _, f := range files {
+		tf = append(tf, "tmpl/"+f)
+	}
+	t := template.New(files[0]).Funcs(tmplFuncs)
+	return template.Must(t.ParseFS(embeddedFS, tf...))
 }
 
 // initStats initializes the in-memory stats counter with counts from db.
@@ -473,12 +495,8 @@ func serveHelp(w http.ResponseWriter, _ *http.Request) {
 }
 
 func serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
-	type opensearchData struct {
-		Hostname string
-	}
-
 	w.Header().Set("Content-Type", "application/opensearchdescription+xml")
-	opensearchTmpl.Execute(w, opensearchData{Hostname: *hostname})
+	opensearchTmpl.Execute(w, nil)
 }
 
 func serveGo(w http.ResponseWriter, r *http.Request) {

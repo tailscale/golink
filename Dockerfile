@@ -1,5 +1,5 @@
-FROM --platform=$BUILDPLATFORM cgr.dev/chainguard/wolfi-base as build
-RUN apk update && apk add build-base git openssh go-1.22
+FROM --platform=$BUILDPLATFORM golang:alpine AS build
+RUN apk update && apk add build-base git openssh
 
 WORKDIR /work
 
@@ -15,7 +15,7 @@ RUN \
   GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -v ./cmd/golink
 
 
-FROM cgr.dev/chainguard/static:latest
+FROM alpine
 
 ENV HOME /home/nonroot
 

@@ -29,7 +29,7 @@
             version = golinkVersion;
             src = pkgs.nix-gitignore.gitignoreSource [ ] ./.;
 
-            vendorHash = "sha256-FBKIqr9B6Dxm1rVrQg6/5jz72lMjkFV6LBDK/3vUCIc="; # SHA based on vendoring go.mod
+            vendorHash = "sha256-QkmdnOk+65VU0TISqX2nbBvJK7yw74nXaLk3snoira4="; # SHA based on vendoring go.mod
           };
         };
     }

@@ -2,6 +2,10 @@ FROM --platform=$BUILDPLATFORM golang:1.23-alpine as build
 
 WORKDIR /work
 
+# Install git so that go build populates the VCS details in build info, which
+# is then reported to Tailscale in the node version string.
+RUN apk add git
+
 COPY go.mod go.sum ./
 RUN go mod download
 

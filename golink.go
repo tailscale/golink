@@ -972,7 +972,7 @@ func restoreLastSnapshot() error {
 		}
 		restored++
 	}
-	if restored > 0 {
+	if restored > 0 && *verbose {
 		log.Printf("Restored %v links.", restored)
 	}
 	return bs.Err()

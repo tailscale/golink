@@ -412,10 +412,28 @@ func TestExpandLink(t *testing.T) {
 			want:      "http://host.com/a%2Fb%2Bc",
 		},
 		{
+			name:      "template-with-trimprefix-func",
+			long:      `http://host.com/{{TrimPrefix .Path "BUG-"}}`,
+			remainder: "BUG-123",
+			want:      "http://host.com/123",
+		},
+		{
 			name:      "template-with-trimsuffix-func",
 			long:      `http://host.com/{{TrimSuffix .Path "/"}}`,
 			remainder: "a/",
 			want:      "http://host.com/a",
+		},
+		{
+			name:      "template-with-tolower-func",
+			long:      `http://host.com/{{ToLower .Path}}`,
+			remainder: "BUG-123",
+			want:      "http://host.com/bug-123",
+		},
+		{
+			name:      "template-with-toupper-func",
+			long:      `http://host.com/{{ToUpper .Path}}`,
+			remainder: "bug-123",
+			want:      "http://host.com/BUG-123",
 		},
 		{
 			name:      "template-with-match-func",

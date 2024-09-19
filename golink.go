@@ -651,7 +651,10 @@ func (e expandEnv) User() (string, error) {
 var expandFuncMap = texttemplate.FuncMap{
 	"PathEscape":  url.PathEscape,
 	"QueryEscape": url.QueryEscape,
+	"TrimPrefix":  strings.TrimPrefix,
 	"TrimSuffix":  strings.TrimSuffix,
+	"ToLower":     strings.ToLower,
+	"ToUpper":     strings.ToUpper,
 	"Match":       regexMatch,
 }
 

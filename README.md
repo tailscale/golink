@@ -121,6 +121,56 @@ destination="/home/nonroot"
 
 </details>
 
+<details>
+  <summary>Deploy on Modal</summary>
+
+  See the [Modal docs](https://modal.com/docs/guide/managing-deployments) for full instructions on long-lived deployments.
+
+  Create a `golinks.py` file:
+
+  ```python
+import subprocess
+
+import modal
+
+app = modal.App(name="golinks")
+
+vol = modal.Volume.from_name("golinks-data", create_if_missing=True)
+
+image = modal.Image.from_registry(
+    "golang:1.23.0-bookworm",
+    add_python="3.10",
+).run_commands(["go install -v github.com/tailscale/golink/cmd/golink@latest"])
+
+@app.cls(
+    image=image,
+    secrets=[modal.Secret.from_name("golinks")],
+    volumes={"/root/.config": vol},
+    keep_warm=1,
+    concurrency_limit=1,
+)
+class Golinks:
+    @modal.enter()
+    def start_golinks(self):
+        subprocess.Popen(
+            [
+                "golink",
+                "-verbose",
+                "--sqlitedb",
+                "/root/.config/golink.db",
+            ]
+        )
+```
+
+  Then create your secret and deploy with the [Modal CLI](https://github.com/modal-labs/modal-client):
+
+  ```sh
+$ modal secret create golinks TS_AUTHKEY=<key>
+$ modal deploy golinks.py
+  ```
+
+</details>
+
 ## Permissions
 
 By default, users own the links they create and only they can update or delete those links.

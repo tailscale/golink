@@ -299,7 +299,13 @@ func init() {
 }
 
 var tmplFuncs = template.FuncMap{
+	// go is a template function that returns the hostname of the golink service.
+	// This is used throughout the UI to render links, but does not impact link resolution.
 	"go": func() string {
+		if devMode() {
+			// in dev mode, just use "go" instead of "localhost:8080"
+			return defaultHostname
+		}
 		return *hostname
 	},
 }

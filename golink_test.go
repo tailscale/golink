@@ -4,6 +4,7 @@
 package golink
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -608,6 +609,89 @@ func TestNoHSTSShortDomain(t *testing.T) {
 			_, found := w.Header()["Strict-Transport-Security"]
 			if found != tt.expectHsts {
 				t.Errorf("HSTS expectation: domain %s want: %t got: %t", tt.host, tt.expectHsts, found)
+			}
+		})
+	}
+}
+
+func TestServeMine(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed the database with links
+	db.Save(&Link{Short: "link1", Long: "http://example.com/1", Owner: "user1"})
+	db.Save(&Link{Short: "link2", Long: "http://example.com/2", Owner: "user2"})
+	db.Save(&Link{Short: "link3", Long: "http://example.com/3", Owner: "user1"})
+
+	tests := []struct {
+		name        string
+		currentUser func(*http.Request) (user, error)
+		wantLinks   []*Link
+		wantStatus  int
+	}{
+		{
+			name: "User with links",
+			currentUser: func(*http.Request) (user, error) {
+				return user{login: "user1@example.com"}, nil
+			},
+			wantLinks: []*Link{
+				{Short: "link1", Long: "http://example.com/1", Owner: "user1"},
+				{Short: "link3", Long: "http://example.com/3", Owner: "user1"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "User with no links",
+			currentUser: func(*http.Request) (user, error) {
+				return user{login: "user3@example.com"}, nil
+			},
+			wantLinks:  []*Link{},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "Failed to retrieve user",
+			currentUser: func(*http.Request) (user, error) {
+				return user{}, errors.New("authentication failed")
+			},
+			wantLinks:  nil,
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.currentUser != nil {
+				oldCurrentUser := currentUser
+				currentUser = tt.currentUser
+				t.Cleanup(func() {
+					currentUser = oldCurrentUser
+				})
+			}
+
+			r := httptest.NewRequest("GET", "/.mine", nil)
+			w := httptest.NewRecorder()
+			serveMine(w, r)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("serveMine() = %d; want %d", w.Code, tt.wantStatus)
+			}
+
+			if tt.wantStatus == http.StatusOK {
+				var gotLinks []*Link
+				err := json.NewDecoder(w.Body).Decode(&gotLinks)
+				if err != nil {
+					t.Fatalf("Failed to decode response: %v", err)
+				}
+				if len(gotLinks) != len(tt.wantLinks) {
+					t.Errorf("Number of links = %d; want %d", len(gotLinks), len(tt.wantLinks))
+				}
+				for i, link := range gotLinks {
+					if link.Short != tt.wantLinks[i].Short || link.Owner != tt.wantLinks[i].Owner {
+						t.Errorf("Link %d = %+v; want %+v", i, link, tt.wantLinks[i])
+					}
+				}
 			}
 		})
 	}

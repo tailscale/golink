@@ -90,6 +90,31 @@ func (s *SQLiteDB) LoadAll() ([]*Link, error) {
 	return links, rows.Err()
 }
 
+// LoadByOwner retrieves all links owned by the specified user.
+func (s *SQLiteDB) LoadByOwner(owner string) ([]*Link, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var links []*Link
+	rows, err := s.db.Query("SELECT Short, Long, Created, LastEdit, Owner FROM Links WHERE Owner = ?", owner)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		link := new(Link)
+		var created, lastEdit int64
+		err := rows.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner)
+		if err != nil {
+			return nil, err
+		}
+		link.Created = time.Unix(created, 0).UTC()
+		link.LastEdit = time.Unix(lastEdit, 0).UTC()
+		links = append(links, link)
+	}
+	return links, rows.Err()
+}
+
+
 // Load returns a Link by its short name.
 //
 // It returns fs.ErrNotExist if the link does not exist.
@@ -217,3 +242,5 @@ func (s *SQLiteDB) DeleteStats(short string) error {
 	}
 	return nil
 }
+
+

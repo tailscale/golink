@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS Links (
 	Owner	 TEXT    NOT NULL DEFAULT ""
 );
 
+CREATE INDEX IF NOT EXISTS idx_owner ON Links (Owner);
+
 CREATE TABLE IF NOT EXISTS Stats (
 	ID       TEXT    NOT NULL DEFAULT "",
 	Created  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), -- unix seconds

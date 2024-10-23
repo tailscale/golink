@@ -620,10 +620,11 @@ func TestServeMine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Seed the database with links
-	db.Save(&Link{Short: "link1", Long: "http://example.com/1", Owner: "user1"})
-	db.Save(&Link{Short: "link2", Long: "http://example.com/2", Owner: "user2"})
-	db.Save(&Link{Short: "link3", Long: "http://example.com/3", Owner: "user1"})
+	
+	// Seed the database with links - update Owner to match login format
+	db.Save(&Link{Short: "link1", Long: "http://example.com/1", Owner: "user1@example.com"})
+	db.Save(&Link{Short: "link2", Long: "http://example.com/2", Owner: "user2@example.com"})
+	db.Save(&Link{Short: "link3", Long: "http://example.com/3", Owner: "user1@example.com"})
 
 	tests := []struct {
 		name        string
@@ -637,8 +638,8 @@ func TestServeMine(t *testing.T) {
 				return user{login: "user1@example.com"}, nil
 			},
 			wantLinks: []*Link{
-				{Short: "link1", Long: "http://example.com/1", Owner: "user1"},
-				{Short: "link3", Long: "http://example.com/3", Owner: "user1"},
+				{Short: "link1", Long: "http://example.com/1", Owner: "user1@example.com"},
+				{Short: "link3", Long: "http://example.com/3", Owner: "user1@example.com"},
 			},
 			wantStatus: http.StatusOK,
 		},

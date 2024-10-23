@@ -520,6 +520,15 @@ func serveMine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Return JSON if the client doesn't accept HTML
+	if !acceptHTML(r) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(links); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
 	mineTmpl.Execute(w, links)
 }
 

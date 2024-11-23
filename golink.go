@@ -260,6 +260,9 @@ var (
 
 	// opensearchTmpl is the template used by the http://go/.opensearch page
 	opensearchTmpl *template.Template
+
+	// mineTmpl is the template used by the http://go/.mine page
+	mineTmpl *template.Template
 )
 
 type visitData struct {
@@ -292,6 +295,7 @@ func init() {
 	allTmpl = newTemplate("base.html", "all.html")
 	deleteTmpl = newTemplate("base.html", "delete.html")
 	opensearchTmpl = newTemplate("opensearch.xml")
+	mineTmpl = newTemplate("base.html", "mine.html")
 
 	b := make([]byte, 24)
 	rand.Read(b)
@@ -496,6 +500,38 @@ func serveAll(w http.ResponseWriter, _ *http.Request) {
 	allTmpl.Execute(w, links)
 }
 
+func serveMine(w http.ResponseWriter, r *http.Request) {
+	cu, err := currentUser(r)
+	if err != nil {
+		http.Error(w, "Failed to retrieve current user", http.StatusInternalServerError)
+		return
+	}
+
+	// Flush stats before loading links
+	if err := flushStats(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Load links owned by the current user
+	links, err := db.LoadByOwner(cu.login)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return JSON if the client doesn't accept HTML
+	if !acceptHTML(r) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(links); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	mineTmpl.Execute(w, links)
+}
+
 func serveHelp(w http.ResponseWriter, _ *http.Request) {
 	helpTmpl.Execute(w, nil)
 }
@@ -513,6 +549,16 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		case "POST":
 			serveSave(w, r)
 		}
+		return
+	}
+
+	// Route the user-specific link list /.mine endpoint
+	if r.URL.Path == "/.mine" {
+		if r.Method != "GET" {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		serveMine(w, r)
 		return
 	}
 
@@ -1020,3 +1066,4 @@ func isRequestAuthorized(r *http.Request, u user, short string) bool {
 
 	return xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, u.login, short)
 }
+

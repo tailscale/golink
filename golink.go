@@ -62,6 +62,7 @@ var (
 	useHTTPS          = flag.Bool("https", true, "serve golink over HTTPS if enabled on tailnet")
 	snapshot          = flag.String("snapshot", "", "file path of snapshot file")
 	hostname          = flag.String("hostname", defaultHostname, "service name")
+	configDir         = flag.String("config-dir", "", `tsnet configuration directory ("" to use default)`)
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
 )
@@ -176,6 +177,7 @@ func Run() error {
 	// create tsNet server and wait for it to be ready & connected.
 	srv := &tsnet.Server{
 		ControlURL:   *controlURL,
+		Dir:          *configDir,
 		Hostname:     *hostname,
 		Logf:         func(format string, args ...any) {},
 		RunWebClient: true,

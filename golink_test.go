@@ -76,6 +76,31 @@ func TestServeGo(t *testing.T) {
 			wantLink:   "http://who/http://host",
 		},
 		{
+			name:       "simple link, trailing period",
+			link:       "/who.",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/",
+		},
+		{
+			name:       "simple link, trailing comma",
+			link:       "/who,",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/",
+		},
+		{
+			// This seems like an incredibly unlikely typo, but test it anyway.
+			name:       "simple link, trailing comma and path",
+			link:       "/who,/p",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/p",
+		},
+		{
+			name:       "simple link, trailing paren",
+			link:       "/who)",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/",
+		},
+		{
 			name:       "user link",
 			link:       "/me",
 			wantStatus: http.StatusFound,

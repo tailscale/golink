@@ -528,6 +528,15 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 
 	link, err := db.Load(short)
 	if errors.Is(err, fs.ErrNotExist) {
+		// Trim common punctuation from the end and try again.
+		// This catches auto-linking and copy/paste issues that include punctuation.
+		if s := strings.TrimRight(short, ".,()[]{}"); short != s {
+			short = s
+			link, err = db.Load(short)
+		}
+	}
+
+	if errors.Is(err, fs.ErrNotExist) {
 		w.WriteHeader(http.StatusNotFound)
 		serveHome(w, r, short)
 		return

@@ -138,9 +138,12 @@ app = modal.App(name="golinks")
 vol = modal.Volume.from_name("golinks-data", create_if_missing=True)
 
 image = modal.Image.from_registry(
-    "golang:1.23.0-bookworm",
+    "golang:1.23.4-bookworm",
     add_python="3.10",
-).run_commands(["go install -v github.com/tailscale/golink/cmd/golink@latest"])
+).run_commands([
+    "go install -v github.com/tailscale/golink/cmd/golink@latest",
+    "rm -rf /root/.config"
+])
 
 @app.cls(
     image=image,

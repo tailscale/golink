@@ -26,7 +26,7 @@
           ldflags =
             let
               tsVersion = with builtins; head (match
-                ".*tailscale.com v([0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z]+).*"
+                ".*tailscale.com v([0-9]+\.[0-9]+\.[0-9]+-?[a-zA-Z]?).*"
                 (readFile ./go.mod));
             in
             [
@@ -35,7 +35,7 @@
               "-X tailscale.com/version.longStamp=${tsVersion}"
               "-X tailscale.com/version.shortStamp=${tsVersion}"
             ];
-          vendorHash = "sha256-myGEAOCJkeKGTzyLD6yBC10yHULxcbOnzseGVtYD7qM="; # SHA based on vendoring go.mod
+          vendorHash = "sha256-+XUg5XRswC77U5sZgQENQI2JGH0dwWdtsI4/NMI3KwA="; # SHA based on vendoring go.mod
         };
     };
 

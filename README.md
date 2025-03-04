@@ -253,3 +253,7 @@ enabled over its HTTP interface you _must_ specify the `-L` flag to follow these
 redirects or else your request will terminate early with an empty response. We
 recommend the use of the `-L` flag in all deployments regardless of current
 HTTPS status to avoid accidental outages should it be enabled in the future.
+
+## My Links
+
+Navigate to `http://go/.mine` to view all the links you have created. This page filters the links to display only those owned by your account, providing a personalized view of your shortlinks.

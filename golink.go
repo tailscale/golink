@@ -62,6 +62,7 @@ var (
 	useHTTPS          = flag.Bool("https", true, "serve golink over HTTPS if enabled on tailnet")
 	snapshot          = flag.String("snapshot", "", "file path of snapshot file")
 	hostname          = flag.String("hostname", defaultHostname, "service name")
+	configDir         = flag.String("config-dir", "", `tsnet configuration directory ("" to use default)`)
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
 )
@@ -176,6 +177,7 @@ func Run() error {
 	// create tsNet server and wait for it to be ready & connected.
 	srv := &tsnet.Server{
 		ControlURL:   *controlURL,
+		Dir:          *configDir,
 		Hostname:     *hostname,
 		Logf:         func(format string, args ...any) {},
 		RunWebClient: true,
@@ -571,6 +573,15 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	link, err := db.Load(short)
+	if errors.Is(err, fs.ErrNotExist) {
+		// Trim common punctuation from the end and try again.
+		// This catches auto-linking and copy/paste issues that include punctuation.
+		if s := strings.TrimRight(short, ".,()[]{}"); short != s {
+			short = s
+			link, err = db.Load(short)
+		}
+	}
+
 	if errors.Is(err, fs.ErrNotExist) {
 		w.WriteHeader(http.StatusNotFound)
 		serveHome(w, r, short)

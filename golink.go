@@ -384,7 +384,13 @@ func deleteLinkStats(link *Link) {
 // requests. It redirects all requests to the HTTPs version of the same URL.
 func redirectHandler(hostname string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, (&url.URL{Scheme: "https", Host: hostname, Path: r.URL.Path}).String(), http.StatusFound)
+		u := &url.URL{
+			Scheme:   "https",
+			Host:     hostname,
+			Path:     r.URL.Path,
+			RawQuery: r.URL.RawQuery,
+		}
+		http.Redirect(w, r, u.String(), http.StatusFound)
 	})
 }
 

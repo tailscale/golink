@@ -637,3 +637,16 @@ func TestNoHSTSShortDomain(t *testing.T) {
 		})
 	}
 }
+
+func TestHTTPSRedirectHandlerWithQuery(t *testing.T) {
+	h := redirectHandler("foobar.com")
+	r := httptest.NewRequest("GET", "http://example.com/?query=bar", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusFound {
+		t.Errorf("got %d; want %d", w.Code, http.StatusFound)
+	}
+	if w.Header().Get("Location") != "https://foobar.com/?query=bar" {
+		t.Errorf("got %q; want %q", w.Header().Get("Location"), "https://foobar.com/?query=bar")
+	}
+}

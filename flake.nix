@@ -94,7 +94,8 @@
           };
 
           tailscaleAuthKeyFile = mkOption {
-            type = types.path;
+            type = types.nullOr types.path;
+            default = null;
             description = "Path to file containing the Tailscale Auth Key";
           };
 

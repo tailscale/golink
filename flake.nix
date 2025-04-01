@@ -16,7 +16,7 @@
       devShells.default = pkgs.mkShell { buildInputs = [ pkgs.go_1_23 ]; };
 
       packages.default =
-        pkgs.buildGo123Module {
+        pkgs.buildGo124Module {
           pname = "golink";
           version =
             if (self ? shortRev)
@@ -35,7 +35,7 @@
               "-X tailscale.com/version.longStamp=${tsVersion}"
               "-X tailscale.com/version.shortStamp=${tsVersion}"
             ];
-          vendorHash = "sha256-+XUg5XRswC77U5sZgQENQI2JGH0dwWdtsI4/NMI3KwA="; # SHA based on vendoring go.mod
+          vendorHash = "sha256-k3BxPRTgoJM0oCixDVA2k44ztdAUZO4IcO2/QB19HvU="; # SHA based on vendoring go.mod
         };
     };
 

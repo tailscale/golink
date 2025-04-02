@@ -34,6 +34,7 @@ import (
 	"tailscale.com/client/tailscale"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 	"tailscale.com/util/dnsname"
@@ -65,6 +66,7 @@ var (
 	configDir         = flag.String("config-dir", "", `tsnet configuration directory ("" to use default)`)
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
+	useTailscaled     = flag.Bool("use-tailscaled", false, "use tailscaled instead of tsnet")
 )
 
 var stats struct {
@@ -168,6 +170,41 @@ func Run() error {
 
 		log.Printf("Running in dev mode on %s ...", *dev)
 		log.Fatal(http.ListenAndServe(*dev, serveHandler()))
+	}
+
+	if *useTailscaled {
+		localClient = &tailscale.LocalClient{}
+		var st *ipnstate.Status
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+			st, err = localClient.StatusWithoutPeers(ctx)
+			cancel()
+			if err != nil {
+				return err
+			}
+			if st.BackendState == "Running" {
+				break
+			}
+			log.Printf("Waiting for backend to enter Running state; currently %s", st.BackendState)
+			time.Sleep(time.Second)
+		}
+
+		anySuccess := false
+		for _, ip := range st.TailscaleIPs {
+			l80, err := net.Listen("tcp", net.JoinHostPort(ip.String(), "80"))
+			if err != nil {
+				log.Printf("Listen(%s): %v", ip, err)
+				continue
+			}
+			anySuccess = true
+
+			go http.Serve(l80, serveHandler())
+		}
+		if !anySuccess {
+			return errors.New("unable to listen on any Tailscale IP")
+		}
+		log.Printf("Serving http://%s/ ...", strings.TrimSuffix(st.Self.DNSName, "."))
+		select {}
 	}
 
 	if *hostname == "" {

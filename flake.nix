@@ -94,8 +94,13 @@
           };
 
           tailscaleAuthKeyFile = mkOption {
-            type = types.path;
-            description = "Path to file containing the Tailscale Auth Key";
+            type = types.nullOr types.path;
+            default = null;
+            description = ''
+              Path to the file containing the Tailscale Auth Key.
+              If null, manual authorization with the tailnet is required.
+              Check `journalctl -eu golink` for the login link.
+            '';
           };
 
           verbose = mkOption {

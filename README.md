@@ -1,6 +1,6 @@
 # golink
 
-[![status: experimental](https://img.shields.io/badge/status-experimental-blue)](https://tailscale.com/kb/1167/release-stages/#experimental)
+[![Tailscale Community Project](https://img.shields.io/badge/Tailscale-Community%20Project-5A82DE?logo=tailscale)](https://tailscale.com/kb/1167/release-stages#tailscale-community-projects)
 
 golink is a private shortlink service for your [tailnet].
 It lets you create short, memorable links for the websites you and your team use most.

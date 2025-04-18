@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.org/x/net/xsrftoken"
+	"tailscale.com/tstest"
 	"tailscale.com/types/ptr"
 	"tailscale.com/util/must"
 )
@@ -355,6 +356,67 @@ func TestServeDelete(t *testing.T) {
 				t.Errorf("serveDelete(%q) = %d; want %d", tt.short, w.Code, tt.wantStatus)
 			}
 		})
+	}
+}
+
+func TestServeExport(t *testing.T) {
+	clock := tstest.NewClock(tstest.ClockOpts{
+		Start: time.Date(2022, 06, 02, 1, 2, 3, 4, time.UTC),
+	})
+
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	db.clock = clock
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Save(&Link{Short: "a", Owner: "a@example.com"})
+	db.Save(&Link{Short: "foo", Owner: "foo@example.com"})
+	db.Save(&Link{Short: "link-owned-by-tagged-devices", Long: "/before", Owner: "tagged-devices"})
+
+	click := func(id string) {
+		r := httptest.NewRequest("GET", "/"+id, nil)
+		w := httptest.NewRecorder()
+		serveHandler().ServeHTTP(w, r)
+	}
+	initStats()
+	click("a")
+	click("foo")
+	click("foo")
+	flushStats()
+	clock.Advance(3 * time.Minute)
+	click("a")
+
+	// export links
+	r := httptest.NewRequest("GET", "/.export", nil)
+	w := httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+
+	if want := http.StatusOK; w.Code != want {
+		t.Errorf("serveExport = %d; want %d", w.Code, want)
+	}
+	wantOutput := `{"Short":"a","Long":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"a@example.com"}
+{"Short":"foo","Long":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"foo@example.com"}
+{"Short":"link-owned-by-tagged-devices","Long":"/before","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"tagged-devices"}
+`
+	if got := w.Body.String(); got != wantOutput {
+		t.Errorf("serveExport = %v; want %v", got, wantOutput)
+	}
+
+	// export links stats
+	r = httptest.NewRequest("GET", "/.export-stats", nil)
+	w = httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+
+	if want := http.StatusOK; w.Code != want {
+		t.Errorf("serveExportStats = %d; want %d", w.Code, want)
+	}
+	wantOutput = `a,1654131723,1
+foo,1654131723,2
+a,1654131903,1
+`
+	if got := w.Body.String(); got != wantOutput {
+		t.Errorf("serveExportStats = %v; want %v", got, wantOutput)
 	}
 }
 

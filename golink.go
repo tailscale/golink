@@ -421,6 +421,7 @@ func serveHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.detail/", serveDetail)
 	mux.HandleFunc("/.export", serveExport)
+	mux.HandleFunc("/.export-stats", serveExportStats)
 	mux.HandleFunc("/.help", serveHelp)
 	mux.HandleFunc("/.opensearch", serveOpenSearch)
 	mux.HandleFunc("/.all", serveAll)
@@ -987,6 +988,42 @@ func serveExport(w http.ResponseWriter, _ *http.Request) {
 		if err := encoder.Encode(link); err != nil {
 			panic(http.ErrAbortHandler)
 		}
+	}
+}
+
+// serveExportStats prints a snapshot of the stats database table.
+//
+// Stats are printed in CSV format with three columns: link ID, UNIX timestamp, and click count.
+// Each stat line represents the number of clicks in the previous minute.
+func serveExportStats(w http.ResponseWriter, _ *http.Request) {
+	if err := flushStats(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows, err := db.db.Query("SELECT ID, Created, Clicks FROM Stats ORDER BY Created, ID")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}()
+
+	for rows.Next() {
+		var id string
+		var created int64
+		var clicks int
+		err := rows.Scan(&id, &created, &clicks)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// id is not permitted to contain commas, so no need to worry about CSV quoting
+		fmt.Fprintf(w, "%s,%d,%d\n", id, created, clicks)
 	}
 }
 

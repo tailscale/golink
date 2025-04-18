@@ -16,6 +16,7 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+	"tailscale.com/tstime"
 )
 
 // Link is the structure stored for each go short link.
@@ -42,6 +43,8 @@ func linkID(short string) string {
 type SQLiteDB struct {
 	db *sql.DB
 	mu sync.RWMutex
+
+	clock tstime.Clock // allow overriding time for tests
 }
 
 //go:embed schema.sql
@@ -62,6 +65,11 @@ func NewSQLiteDB(f string) (*SQLiteDB, error) {
 	}
 
 	return &SQLiteDB{db: db}, nil
+}
+
+// Now returns the current time.
+func (s *SQLiteDB) Now() time.Time {
+	return tstime.DefaultClock{Clock: s.clock}.Now()
 }
 
 // LoadAll returns all stored Links.
@@ -195,7 +203,7 @@ func (s *SQLiteDB) SaveStats(stats ClickStats) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now().Unix()
+	now := s.Now().Unix()
 	for short, clicks := range stats {
 		_, err := tx.Exec("INSERT INTO Stats (ID, Created, Clicks) VALUES (?, ?, ?)", linkID(short), now, clicks)
 		if err != nil {

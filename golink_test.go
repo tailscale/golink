@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/net/xsrftoken"
 	"tailscale.com/tstest"
 	"tailscale.com/types/ptr"
 	"tailscale.com/util/must"
@@ -21,6 +20,75 @@ import (
 func init() {
 	// tests always need golink to be run in dev mode
 	*dev = ":8080"
+}
+
+func TestEnforceSecFetchSiteOrSecGolink(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := EnforceSecFetchSiteOrSecGolink(mux)
+
+	tests := []struct {
+		name           string
+		method         string
+		withSameOrigin bool
+		withCrossSite  bool
+		expectSuccess  bool
+		withSecGolink  bool
+	}{
+		{
+			name:           "GET without header succeeds",
+			method:         http.MethodGet,
+			withSameOrigin: false,
+			expectSuccess:  true,
+		},
+		{
+			name:   "POST without header fails",
+			method: http.MethodPost,
+		},
+		{
+			name:           "POST with same-origin header succeeds",
+			method:         http.MethodPost,
+			withSameOrigin: true,
+			expectSuccess:  true,
+		},
+		{
+			name:          "POST with cross-site header fails",
+			method:        http.MethodPost,
+			withCrossSite: true,
+		},
+		{
+			name:          "POST with sec-golink header succeeds",
+			method:        http.MethodPost,
+			withSecGolink: true,
+			expectSuccess: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(tt.method, "/", nil)
+			if tt.withSameOrigin {
+				r.Header.Set(secFetchSite, "same-origin")
+			}
+			if tt.withCrossSite {
+				r.Header.Set(secFetchSite, "cross-site")
+			}
+			if tt.withSecGolink {
+				r.Header.Set(secGolink, "true")
+			}
+
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+
+			if w.Code != http.StatusOK && tt.expectSuccess {
+				t.Errorf("expected status OK, got %d", w.Code)
+			} else if w.Code == http.StatusOK && !tt.expectSuccess {
+				t.Errorf("expected non-OK status, got %d", w.Code)
+			}
+		})
+	}
 }
 
 func TestServeGo(t *testing.T) {
@@ -158,17 +226,9 @@ func TestServeSave(t *testing.T) {
 	}
 	db.Save(&Link{Short: "link-owned-by-tagged-devices", Long: "/before", Owner: "tagged-devices"})
 
-	fooXSRF := func(short string) string {
-		return xsrftoken.Generate(xsrfKey, "foo@example.com", short)
-	}
-	barXSRF := func(short string) string {
-		return xsrftoken.Generate(xsrfKey, "bar@example.com", short)
-	}
-
 	tests := []struct {
 		name              string
 		short             string
-		xsrf              string
 		long              string
 		allowUnknownUsers bool
 		currentUser       func(*http.Request) (user, error)
@@ -189,14 +249,12 @@ func TestServeSave(t *testing.T) {
 		{
 			name:       "save simple link",
 			short:      "who",
-			xsrf:       fooXSRF(newShortName),
 			long:       "http://who/",
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:        "disallow editing another's link",
 			short:       "who",
-			xsrf:        barXSRF("who"),
 			long:        "http://who/",
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com"}, nil },
 			wantStatus:  http.StatusForbidden,
@@ -204,7 +262,6 @@ func TestServeSave(t *testing.T) {
 		{
 			name:        "allow editing link owned by tagged-devices",
 			short:       "link-owned-by-tagged-devices",
-			xsrf:        barXSRF("link-owned-by-tagged-devices"),
 			long:        "/after",
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com"}, nil },
 			wantStatus:  http.StatusOK,
@@ -212,7 +269,6 @@ func TestServeSave(t *testing.T) {
 		{
 			name:        "admins can edit any link",
 			short:       "who",
-			xsrf:        barXSRF("who"),
 			long:        "http://who/",
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com", isAdmin: true}, nil },
 			wantStatus:  http.StatusOK,
@@ -220,7 +276,6 @@ func TestServeSave(t *testing.T) {
 		{
 			name:        "disallow unknown users",
 			short:       "who2",
-			xsrf:        fooXSRF("who2"),
 			long:        "http://who/",
 			currentUser: func(*http.Request) (user, error) { return user{}, errors.New("") },
 			wantStatus:  http.StatusInternalServerError,
@@ -232,13 +287,6 @@ func TestServeSave(t *testing.T) {
 			allowUnknownUsers: true,
 			currentUser:       func(*http.Request) (user, error) { return user{}, nil },
 			wantStatus:        http.StatusOK,
-		},
-		{
-			name:       "invalid xsrf",
-			short:      "goat",
-			xsrf:       fooXSRF("sheep"),
-			long:       "https://goat.example.com/goat.php?goat=true",
-			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -259,7 +307,6 @@ func TestServeSave(t *testing.T) {
 			r := httptest.NewRequest("POST", "/", strings.NewReader(url.Values{
 				"short": {tt.short},
 				"long":  {tt.long},
-				"xsrf":  {tt.xsrf},
 			}.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
@@ -282,14 +329,9 @@ func TestServeDelete(t *testing.T) {
 	db.Save(&Link{Short: "foo", Owner: "foo@example.com"})
 	db.Save(&Link{Short: "link-owned-by-tagged-devices", Long: "/before", Owner: "tagged-devices"})
 
-	xsrf := func(short string) string {
-		return xsrftoken.Generate(xsrfKey, "foo@example.com", short)
-	}
-
 	tests := []struct {
 		name        string
 		short       string
-		xsrf        string
 		currentUser func(*http.Request) (user, error)
 		wantStatus  int
 	}{
@@ -311,27 +353,13 @@ func TestServeDelete(t *testing.T) {
 		{
 			name:       "allow deleting link owned by tagged-devices",
 			short:      "link-owned-by-tagged-devices",
-			xsrf:       xsrf("link-owned-by-tagged-devices"),
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:        "admin can delete unowned link",
 			short:       "a",
 			currentUser: func(*http.Request) (user, error) { return user{login: "foo@example.com", isAdmin: true}, nil },
-			xsrf:        xsrf("a"),
 			wantStatus:  http.StatusOK,
-		},
-		{
-			name:       "invalid xsrf",
-			short:      "foo",
-			xsrf:       xsrf("invalid"),
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "valid xsrf",
-			short:      "foo",
-			xsrf:       xsrf("foo"),
-			wantStatus: http.StatusOK,
 		},
 	}
 
@@ -345,9 +373,7 @@ func TestServeDelete(t *testing.T) {
 				})
 			}
 
-			r := httptest.NewRequest("POST", "/.delete/"+tt.short, strings.NewReader(url.Values{
-				"xsrf": {tt.xsrf},
-			}.Encode()))
+			r := httptest.NewRequest("POST", "/.delete/"+tt.short, nil)
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 			serveDelete(w, r)

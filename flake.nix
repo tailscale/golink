@@ -44,7 +44,7 @@
       });
 
       overlays.default = final: prev: {
-        golink = self.packages.${prev.system}.default;
+        golink = self.packages.${prev.stdenv.hostPlatform.system}.default;
       };
 
       nixosModules.default =

@@ -19,7 +19,7 @@
       formatter = eachSystem (pkgs: pkgs.nixpkgs-fmt);
 
       devShells = eachSystem (pkgs: {
-        default = pkgs.mkShell { buildInputs = [ pkgs.go_1_23 ]; };
+        default = pkgs.mkShell { buildInputs = [ pkgs.go_1_24 ]; };
       });
 
       packages = eachSystem (pkgs: {
@@ -39,7 +39,7 @@
               "-X tailscale.com/version.longStamp=${tsVersion}"
               "-X tailscale.com/version.shortStamp=${tsVersion}"
             ];
-          vendorHash = "sha256-tF3TuIWr5x4inGrykXAjXBQATpDdpTX8HDYmEeukTEc="; # SHA based on vendoring go.mod
+          vendorHash = "sha256-Nh/c6bHmaN9a1Ou2RYCMHqOsBtaVjLF27qnxeuCfx9Q="; # SHA based on vendoring go.mod
         };
       });
 

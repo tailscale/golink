@@ -3,31 +3,35 @@
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixpkgs-unstable";
-    parts.url = "github:hercules-ci/flake-parts";
     systems.url = "github:nix-systems/default";
   };
 
-  outputs = inputs @ { self, parts, ... }: parts.lib.mkFlake { inherit inputs; } {
-    systems = import inputs.systems;
+  outputs =
+    { self
+    , nixpkgs
+    , systems
+    ,
+    }:
+    let
+      eachSystem = f: nixpkgs.lib.genAttrs (import systems) (s: f nixpkgs.legacyPackages.${s});
+    in
+    {
+      formatter = eachSystem (pkgs: pkgs.nixpkgs-fmt);
 
-    perSystem = { pkgs, ... }: {
-      formatter = pkgs.nixpkgs-fmt;
+      devShells = eachSystem (pkgs: {
+        default = pkgs.mkShell { buildInputs = [ pkgs.go_1_23 ]; };
+      });
 
-      devShells.default = pkgs.mkShell { buildInputs = [ pkgs.go_1_23 ]; };
-
-      packages.default =
-        pkgs.buildGo124Module {
+      packages = eachSystem (pkgs: {
+        default = pkgs.buildGo124Module {
           pname = "golink";
-          version =
-            if (self ? shortRev)
-            then self.shortRev
-            else "dev";
+          version = if (self ? shortRev) then self.shortRev else "dev";
           src = pkgs.nix-gitignore.gitignoreSource [ ] ./.;
           ldflags =
             let
-              tsVersion = with builtins; head (match
-                ".*tailscale.com v([0-9]+\.[0-9]+\.[0-9]+-?[a-zA-Z]?).*"
-                (readFile ./go.mod));
+              tsVersion =
+                with builtins;
+                head (match ".*tailscale.com v([0-9]+\.[0-9]+\.[0-9]+-?[a-zA-Z]?).*" (readFile ./go.mod));
             in
             [
               "-w"
@@ -37,114 +41,119 @@
             ];
           vendorHash = "sha256-k3BxPRTgoJM0oCixDVA2k44ztdAUZO4IcO2/QB19HvU="; # SHA based on vendoring go.mod
         };
-    };
+      });
 
-    flake.overlays.default = final: prev: {
-      golink = self.packages.${prev.system}.default;
-    };
+      overlays.default = final: prev: {
+        golink = self.packages.${prev.system}.default;
+      };
 
-    flake.nixosModules.default = { config, lib, pkgs, ... }:
-      let
-        cfg = config.services.golink;
-        inherit (lib)
-          concatStringsSep
-          escapeShellArg
-          mkEnableOption
-          mkIf
-          mkOption
-          optionalString
-          optionals
-          types
-          ;
-      in
-      {
-        options.services.golink = {
-          enable = mkEnableOption "Enable golink";
+      nixosModules.default =
+        { config
+        , lib
+        , pkgs
+        , ...
+        }:
+        let
+          cfg = config.services.golink;
+          inherit (lib)
+            concatStringsSep
+            escapeShellArg
+            mkEnableOption
+            mkIf
+            mkOption
+            optionalString
+            optionals
+            types
+            ;
+        in
+        {
+          options.services.golink = {
+            enable = mkEnableOption "Enable golink";
 
-          package = mkOption {
-            type = types.package;
-            description = ''
-              golink package to use
-            '';
-            default = pkgs.golink;
-          };
-
-          dataDir = mkOption {
-            type = types.path;
-            default = "/var/lib/golink";
-            description = "Path to data dir";
-          };
-
-          user = mkOption {
-            type = types.str;
-            default = "golink";
-            description = "User account under which golink runs.";
-          };
-
-          group = mkOption {
-            type = types.str;
-            default = "golink";
-            description = "Group account under which golink runs.";
-          };
-
-          databaseFile = mkOption {
-            type = types.path;
-            default = "/var/lib/golink/golink.db";
-            description = "Path to SQLite database";
-          };
-
-          tailscaleAuthKeyFile = mkOption {
-            type = types.nullOr types.path;
-            default = null;
-            description = ''
-              Path to the file containing the Tailscale Auth Key.
-              If null, manual authorization with the tailnet is required.
-              Check `journalctl -eu golink` for the login link.
-            '';
-          };
-
-          verbose = mkOption {
-            type = types.bool;
-            default = false;
-          };
-        };
-
-        config = mkIf cfg.enable {
-          nixpkgs.overlays = [ self.overlays.default ];
-
-          users.groups."${cfg.group}" = { };
-          users.users."${cfg.user}" = {
-            home = cfg.dataDir;
-            createHome = true;
-            group = "${cfg.group}";
-            isSystemUser = true;
-            isNormalUser = false;
-            description = "user for golink service";
-          };
-
-          systemd.services.golink = {
-            enable = true;
-            script =
-              let
-                args = [ "--sqlitedb ${cfg.databaseFile}" ] ++ optionals cfg.verbose [ "--verbose" ];
-              in
-              ''
-                ${optionalString (cfg.tailscaleAuthKeyFile != null) ''
-                  export TS_AUTHKEY="$(head -n1 ${escapeShellArg cfg.tailscaleAuthKeyFile})"
-                ''}
-
-                ${cfg.package}/bin/golink ${concatStringsSep " " args}
+            package = mkOption {
+              type = types.package;
+              description = ''
+                golink package to use
               '';
-            wantedBy = [ "multi-user.target" ];
-            serviceConfig = {
-              User = cfg.user;
-              Group = cfg.group;
-              Restart = "always";
-              RestartSec = "15";
-              WorkingDirectory = "${cfg.dataDir}";
+              default = pkgs.golink;
+            };
+
+            dataDir = mkOption {
+              type = types.path;
+              default = "/var/lib/golink";
+              description = "Path to data dir";
+            };
+
+            user = mkOption {
+              type = types.str;
+              default = "golink";
+              description = "User account under which golink runs.";
+            };
+
+            group = mkOption {
+              type = types.str;
+              default = "golink";
+              description = "Group account under which golink runs.";
+            };
+
+            databaseFile = mkOption {
+              type = types.path;
+              default = "/var/lib/golink/golink.db";
+              description = "Path to SQLite database";
+            };
+
+            tailscaleAuthKeyFile = mkOption {
+              type = types.nullOr types.path;
+              default = null;
+              description = ''
+                Path to the file containing the Tailscale Auth Key.
+                If null, manual authorization with the tailnet is required.
+                Check `journalctl -eu golink` for the login link.
+              '';
+            };
+
+            verbose = mkOption {
+              type = types.bool;
+              default = false;
+            };
+          };
+
+          config = mkIf cfg.enable {
+            nixpkgs.overlays = [ self.overlays.default ];
+
+            users.groups."${cfg.group}" = { };
+            users.users."${cfg.user}" = {
+              home = cfg.dataDir;
+              createHome = true;
+              group = "${cfg.group}";
+              isSystemUser = true;
+              isNormalUser = false;
+              description = "user for golink service";
+            };
+
+            systemd.services.golink = {
+              enable = true;
+              script =
+                let
+                  args = [ "--sqlitedb ${cfg.databaseFile}" ] ++ optionals cfg.verbose [ "--verbose" ];
+                in
+                ''
+                  ${optionalString (cfg.tailscaleAuthKeyFile != null) ''
+                    export TS_AUTHKEY="$(head -n1 ${escapeShellArg cfg.tailscaleAuthKeyFile})"
+                  ''}
+
+                  ${cfg.package}/bin/golink ${concatStringsSep " " args}
+                '';
+              wantedBy = [ "multi-user.target" ];
+              serviceConfig = {
+                User = cfg.user;
+                Group = cfg.group;
+                Restart = "always";
+                RestartSec = "15";
+                WorkingDirectory = "${cfg.dataDir}";
+              };
             };
           };
         };
-      };
-  };
+    };
 }

@@ -6,7 +6,7 @@ require (
 	github.com/google/go-cmp v0.6.0
 	golang.org/x/net v0.36.0
 	modernc.org/sqlite v1.19.4
-	tailscale.com v1.82.0
+	tailscale.com v1.82.5
 )
 
 require (

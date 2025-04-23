@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 2
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@aacc1657a206483a9d7037b91370e00407cf3ec5
         with:
           determinate: true
 

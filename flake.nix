@@ -39,7 +39,7 @@
               "-X tailscale.com/version.longStamp=${tsVersion}"
               "-X tailscale.com/version.shortStamp=${tsVersion}"
             ];
-          vendorHash = "sha256-RqKsIgwkCbIMQdCKtSHqW9eiZuNcZLCYeXFhPbgxjEU="; # SHA based on vendoring go.mod
+          vendorHash = "sha256-PUobfmZyn5YtiFTpxTtjnPhqijR5tsONk4HNlIs1oNk="; # SHA based on vendoring go.mod
         };
       });
 

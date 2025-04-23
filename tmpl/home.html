@@ -8,7 +8,6 @@
       <p class="">Did you mean <a class="text-blue-600 hover:underline" href="{{.}}">{{.}}</a> ? Create a {{go}} link for it now:</p>
       {{ end }}
       <form method="POST" action="/" class="flex flex-wrap">
-        <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
         <div class="flex">
           <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{go}}/</label>
           <input id=short name=short required type=text size=15 placeholder="shortname" value="{{.Short}}" pattern="\w[\w\-\.]*" title="Must start with letter or number; may contain letters, numbers, dashes, and periods."

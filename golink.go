@@ -881,6 +881,13 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Prevent accidental overwrites of existing links.
+	// If the link already exists, make sure this request is an intentional update.
+	if link != nil && r.FormValue("update") == "" {
+		http.Error(w, "link already exists", http.StatusForbidden)
+		return
+	}
+
 	if !canEditLink(r.Context(), link, cu) {
 		http.Error(w, fmt.Sprintf("cannot update link owned by %q", link.Owner), http.StatusForbidden)
 		return

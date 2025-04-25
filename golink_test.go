@@ -230,6 +230,7 @@ func TestServeSave(t *testing.T) {
 		name              string
 		short             string
 		long              string
+		update            bool
 		allowUnknownUsers bool
 		currentUser       func(*http.Request) (user, error)
 		wantStatus        int
@@ -253,6 +254,19 @@ func TestServeSave(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:       "disallow accidental updates",
+			short:      "who",
+			long:       "http://who2/",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "allow intentional updates",
+			short:      "who",
+			long:       "http://who/",
+			update:     true,
+			wantStatus: http.StatusOK,
+		},
+		{
 			name:        "disallow editing another's link",
 			short:       "who",
 			long:        "http://who/",
@@ -263,6 +277,7 @@ func TestServeSave(t *testing.T) {
 			name:        "allow editing link owned by tagged-devices",
 			short:       "link-owned-by-tagged-devices",
 			long:        "/after",
+			update:      true,
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com"}, nil },
 			wantStatus:  http.StatusOK,
 		},
@@ -270,6 +285,7 @@ func TestServeSave(t *testing.T) {
 			name:        "admins can edit any link",
 			short:       "who",
 			long:        "http://who/",
+			update:      true,
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com", isAdmin: true}, nil },
 			wantStatus:  http.StatusOK,
 		},
@@ -304,10 +320,15 @@ func TestServeSave(t *testing.T) {
 			*allowUnknownUsers = tt.allowUnknownUsers
 			t.Cleanup(func() { *allowUnknownUsers = oldAllowUnknownUsers })
 
-			r := httptest.NewRequest("POST", "/", strings.NewReader(url.Values{
+			v := url.Values{
 				"short": {tt.short},
 				"long":  {tt.long},
-			}.Encode()))
+			}
+			if tt.update {
+				v.Set("update", "1")
+			}
+
+			r := httptest.NewRequest("POST", "/", strings.NewReader(v.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 			serveSave(w, r)

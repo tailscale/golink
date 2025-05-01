@@ -3,6 +3,7 @@
 
     {{ if .Editable }}
     <form method="POST" action="/">
+      <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
       <div class="flex flex-wrap">
         <div class="flex">
           <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{go}}/</label>
@@ -26,13 +27,13 @@
         <dd>{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
       </dl>
 
-      <input type="hidden" name="update" value="1">
       <button type=submit class="py-2 px-4 my-4 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Update</button>
     </form>
 
     <h3 class="text-lg font-bold pb-2 pt-4 text-red-500">Danger Zone</h3>
 
     <form method="POST" action="/.delete/{{.Link.Short}}">
+      <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
       <button type=submit class="py-2 px-4 my-2 rounded-md bg-red-500 border-red-500 text-white hover:bg-red-600 hover:border-red-600">Delete Link</button>
     </form>
 

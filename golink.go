@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -29,6 +30,7 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"golang.org/x/net/xsrftoken"
 	"tailscale.com/client/tailscale"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
@@ -39,8 +41,17 @@ import (
 
 const (
 	defaultHostname = "go"
-	secFetchSite    = "Sec-Fetch-Site"
-	secGolink       = "Sec-Golink"
+
+	// Used as a placeholder short name for generating the XSRF defense token,
+	// when creating new links.
+	newShortName = ".new"
+
+	// If the caller sends this header set to a non-empty value, we will allow
+	// them to make the call even without an XSRF token. JavaScript in browser
+	// cannot set this header, per the [Fetch Spec].
+	//
+	// [Fetch Spec]: https://fetch.spec.whatwg.org
+	secHeaderName = "Sec-Golink"
 )
 
 var (
@@ -200,8 +211,6 @@ out:
 	fqdn := strings.TrimSuffix(status.Self.DNSName, ".")
 
 	httpHandler := serveHandler()
-	httpHandler = EnforceSecFetchSiteOrSecGolink(httpHandler)
-
 	if enableTLS {
 		httpsHandler := HSTS(httpHandler)
 		httpHandler = redirectHandler(fqdn)
@@ -266,6 +275,7 @@ type homeData struct {
 	Short    string
 	Long     string
 	Clicks   []visitData
+	XSRF     string
 	ReadOnly bool
 }
 
@@ -273,7 +283,10 @@ type homeData struct {
 type deleteData struct {
 	Short string
 	Long  string
+	XSRF  string
 }
+
+var xsrfKey string
 
 func init() {
 	homeTmpl = newTemplate("base.html", "home.html")
@@ -286,6 +299,7 @@ func init() {
 
 	b := make([]byte, 24)
 	rand.Read(b)
+	xsrfKey = base64.StdEncoding.EncodeToString(b)
 }
 
 var tmplFuncs = template.FuncMap{
@@ -402,34 +416,6 @@ func HSTS(h http.Handler) http.Handler {
 	})
 }
 
-// EnforceSecFetchSiteOrSecGolink is a Cross-Site Request Forgery protection
-// middleware that validates the Sec-Fetch-Site header for non-idempotent
-// requests. It requires clients to send Sec-Fetch-Site set to "same-origin".
-//
-// It alternatively allows for clients to send the header "Sec-Golink" set to
-// any value to maintain compatibility with clients developed against earlier
-// versions of golink that relied on xsrf token based CSRF protection.
-func EnforceSecFetchSiteOrSecGolink(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case "GET", "HEAD", "OPTIONS": // allow idempotent methods
-			h.ServeHTTP(w, r)
-			return
-		}
-
-		// Check for Sec-Fetch-Site header set to "same-origin"
-		// or Sec-Golink header set to any value for backwards compatibility.
-		sameOrigin := r.Header.Get(secFetchSite) == "same-origin"
-		secGolink := r.Header.Get(secGolink) != ""
-		if sameOrigin || secGolink {
-			h.ServeHTTP(w, r)
-			return
-		}
-
-		http.Error(w, "invalid non `Sec-Fetch-Site: same-origin` request", http.StatusBadRequest)
-	})
-}
-
 // serverHandler returns the main http.Handler for serving all requests.
 func serveHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -490,10 +476,16 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		}
 	}
 
+	cu, err := currentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	homeTmpl.Execute(w, homeData{
 		Short:    short,
 		Long:     long,
 		Clicks:   clicks,
+		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
 		ReadOnly: *readonly,
 	})
 }
@@ -605,6 +597,7 @@ type detailData struct {
 	// Editable indicates whether the current user can edit the link.
 	Editable bool
 	Link     *Link
+	XSRF     string
 }
 
 func serveDetail(w http.ResponseWriter, r *http.Request) {
@@ -648,6 +641,7 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 	data := detailData{
 		Link:     link,
 		Editable: canEdit,
+		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, link.Short),
 	}
 	if canEdit && !ownerExists {
 		data.Link.Owner = cu.login
@@ -835,6 +829,16 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Deletion by CLI has never worked because it has always required the XSRF
+	// token. (Refer to commit c7ac33d04c33743606f6224009a5c73aa0b8dec0.) If we
+	// want to enable deletion via CLI and to honor allowUnknownUsers for
+	// deletion, we could change the below to a call to isRequestAuthorized. For
+	// now, always require the XSRF token, thus maintaining the status quo.
+	if !xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, cu.login, link.Short) {
+		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
+		return
+	}
+
 	if err := db.Delete(short); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -844,6 +848,7 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 	deleteTmpl.Execute(w, deleteData{
 		Short: link.Short,
 		Long:  link.Long,
+		XSRF:  xsrftoken.Generate(xsrfKey, cu.login, newShortName),
 	})
 }
 
@@ -881,15 +886,20 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prevent accidental overwrites of existing links.
-	// If the link already exists, make sure this request is an intentional update.
-	if link != nil && r.FormValue("update") == "" {
-		http.Error(w, "link already exists", http.StatusForbidden)
+	if !canEditLink(r.Context(), link, cu) {
+		http.Error(w, fmt.Sprintf("cannot update link owned by %q", link.Owner), http.StatusForbidden)
 		return
 	}
 
-	if !canEditLink(r.Context(), link, cu) {
-		http.Error(w, fmt.Sprintf("cannot update link owned by %q", link.Owner), http.StatusForbidden)
+	// short name to use for XSRF token.
+	// For new link creation, the special newShortName value is used.
+	tokenShortName := newShortName
+	if link != nil {
+		tokenShortName = link.Short
+	}
+
+	if !isRequestAuthorized(r, cu, tokenShortName) {
+		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
 		return
 	}
 
@@ -1066,4 +1076,15 @@ func resolveLink(link *url.URL) (*url.URL, error) {
 		}
 	}
 	return dst, err
+}
+
+func isRequestAuthorized(r *http.Request, u user, short string) bool {
+	if *allowUnknownUsers {
+		return true
+	}
+	if r.Header.Get(secHeaderName) != "" {
+		return true
+	}
+
+	return xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, u.login, short)
 }

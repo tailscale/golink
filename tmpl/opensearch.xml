@@ -2,7 +2,7 @@
   <ShortName>{{go}}</ShortName>
   <Description>Private shortlinks on your tailnet</Description>
   <InputEncoding>UTF-8</InputEncoding>
-  <Image width="16" height="16" type="image/png">http://{{go}}/.static/favicon.png</Image>
-  <Url type="text/html" method="get" template="http://{{go}}/{searchTerms}"/>
-  <moz:SearchForm>http://{{go}}/</moz:SearchForm>
+  <Image width="16" height="16" type="image/png">https://{{go}}/.static/favicon.png</Image>
+  <Url type="text/html" method="get" template="https://{{go}}/{searchTerms}"/>
+  <moz:SearchForm>https://{{go}}/</moz:SearchForm>
 </OpenSearchDescription>

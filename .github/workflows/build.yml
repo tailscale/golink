@@ -1,0 +1,38 @@
+name: Build and Push
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::839217748838:role/GitHubGolinksECR
+          aws-region: us-west-2
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registries: 839217748838
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/golinks:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/golinks:$IMAGE_TAG $ECR_REGISTRY/golinks:latest
+          docker push $ECR_REGISTRY/golinks:$IMAGE_TAG
+          docker push $ECR_REGISTRY/golinks:latest 

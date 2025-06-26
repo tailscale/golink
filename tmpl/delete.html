@@ -5,16 +5,25 @@
 
     <form method="POST" action="/">
       <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
-      <div class="flex flex-wrap">
-        <div class="flex">
-          <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{go}}/</label>
-          <input id=short name=short required type=text size=15 placeholder="shortname" value="{{.Short}}" pattern="\w[\w\-\.]*" title="Must start with letter or number; may contain letters, numbers, dashes, and periods."
-            class="p-2 my-2 rounded-r-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
-          <span class="flex m-2 items-center">&rarr;</span>
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center mb-4">
+          <label for="short" class="text-sm font-medium text-gray-400 w-32 mr-4">Shortlink</label>
+          <span class="text-gray-500 text-sm mr-4">http://{{go}}/</span>
+          <div class="flex-1 relative pl-4">
+            <input id="short" name="short" required type="text" placeholder="shortname" value="{{.Short}}" pattern="\w[\w\-\.]*" title="Must start with letter or number; may contain letters, numbers, dashes, and periods."
+              style="border: 1px solid #D0D5DD; box-shadow: 0 1px 2px #1018280D; padding: 8px 12px; border-radius: 8px;"
+              class="w-full focus:ring-primary focus:border-primary placeholder:text-gray-600 text-sm text-gray-900">
+          </div>
         </div>
-        <input name=long required type=text size=40 placeholder="https://destination-url" value="{{.Long}}" class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
+        <div class="flex items-center mb-4">
+          <label for="long" class="text-sm font-medium text-gray-400 w-32 mr-4">Destination URL</label>
+          <input id="long" name="long" required type="text" placeholder="https://destination-url" value="{{.Long}}"
+            style="border: 1px solid #D0D5DD; box-shadow: 0 1px 2px #1018280D; padding: 8px 12px; border-radius: 8px;"
+            class="flex-1 focus:ring-primary focus:border-primary placeholder:text-gray-600 text-sm text-gray-900">
+        </div>
+        <div class="flex items-center mb-4">
+          <button type="submit" class="inline-flex items-center px-3 py-2 border border-transparent create-button text-white bg-primary hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary rounded-lg">Create</button>
+        </div>
       </div>
-
-      <button type=submit class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Create</button>
     </form>
 {{ end }}

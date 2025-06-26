@@ -43,7 +43,7 @@ html {
   -o-tab-size: 4;
      tab-size: 4;
   /* 3 */
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   /* 4 */
   font-feature-settings: normal;
   /* 5 */
@@ -914,11 +914,11 @@ select {
 }
 
 .prose :where(code):not(:where([class~="not-prose"] *))::before {
-  content: ;
+  content: "";
 }
 
 .prose :where(code):not(:where([class~="not-prose"] *))::after {
-  content: ;
+  content: "";
 }
 
 .prose :where(a code):not(:where([class~="not-prose"] *)) {
@@ -1255,6 +1255,10 @@ select {
   width: 8rem;
 }
 
+.w-40 {
+  width: 10rem;
+}
+
 .w-20 {
   width: 5rem;
 }
@@ -1388,6 +1392,10 @@ select {
 .py-2 {
   padding-top: 0.5rem;
   padding-bottom: 0.5rem;
+}
+
+.pl-4 {
+  padding-left: 1rem;
 }
 
 .px-4 {
@@ -1571,6 +1579,265 @@ select {
 .group:hover .group-hover\:text-gray-700 {
   --tw-text-opacity: 1;
   color: rgb(46 45 45 / var(--tw-text-opacity));
+}
+
+.bg-gray-50 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(249 247 247 / var(--tw-bg-opacity));
+}
+
+.bg-blue-600 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(63 93 179 / var(--tw-bg-opacity));
+}
+
+.hover\:bg-blue-700:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(54 82 158 / var(--tw-bg-opacity));
+}
+
+.focus\:ring-2:focus {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+
+.focus\:ring-offset-2:focus {
+  --tw-ring-offset-width: 2px;
+}
+
+.focus\:ring-blue-500:focus {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(75 112 204 / var(--tw-ring-opacity));
+}
+
+.focus\:border-blue-500:focus {
+  --tw-border-opacity: 1;
+  border-color: rgb(75 112 204 / var(--tw-border-opacity));
+}
+
+.focus\:outline-none:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.shadow-sm {
+  --tw-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --tw-shadow-colored: 0 1px 2px 0 var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+.border-transparent {
+  border-color: transparent;
+}
+
+.inline-flex {
+  display: inline-flex;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.min-w-0 {
+  min-width: 0px;
+}
+
+.rounded-none {
+  border-radius: 0px;
+}
+
+.ml-4 {
+  margin-left: 1rem;
+}
+
+.gap-4 {
+  gap: 1rem;
+}
+
+.gap-2 {
+  gap: 0.5rem;
+}
+
+.items-end {
+  align-items: flex-end;
+}
+
+.flex-shrink-0 {
+  flex-shrink: 0;
+}
+
+.w-32 {
+  width: 8rem;
+}
+
+.mx-2 {
+  margin-left: 0.5rem;
+  margin-right: 0.5rem;
+}
+
+.mt-2 {
+  margin-top: 0.5rem;
+}
+
+.mt-8 {
+  margin-top: 2rem;
+}
+
+.mb-3 {
+  margin-bottom: 0.75rem;
+}
+
+.mb-5 {
+  margin-bottom: 1.25rem;
+}
+
+.mb-8 {
+  margin-bottom: 2rem;
+}
+
+.mr-6 {
+  margin-right: 1.5rem;
+}
+
+.gap-4 {
+  gap: 1rem;
+}
+
+/* Custom colors */
+.text-gray-900 {
+  --tw-text-opacity: 1;
+  color: rgb(52 64 84 / var(--tw-text-opacity)); /* #344054 */
+}
+
+.text-gray-600 {
+  --tw-text-opacity: 1;
+  color: rgb(152 162 179 / var(--tw-text-opacity)); /* #98A2B3 */
+}
+
+.border-gray-300 {
+  --tw-border-opacity: 1;
+  border-color: rgb(208 213 221 / var(--tw-border-opacity)); /* #D0D5DD */
+}
+
+.bg-primary {
+  --tw-bg-opacity: 1;
+  background-color: rgb(12 88 200 / var(--tw-bg-opacity)); /* #0C58C8 */
+}
+
+.text-primary {
+  --tw-text-opacity: 1;
+  color: rgb(12 88 200 / var(--tw-text-opacity)); /* #0C58C8 */
+}
+
+.hover\:bg-primary-dark:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(10 76 176 / var(--tw-bg-opacity)); /* Darker shade of #0C58C8 */
+}
+
+.hover\:text-primary:hover {
+  --tw-text-opacity: 1;
+  color: rgb(12 88 200 / var(--tw-text-opacity)); /* #0C58C8 */
+}
+
+.border-primary {
+  --tw-border-opacity: 1;
+  border-color: rgb(12 88 200 / var(--tw-border-opacity)); /* #0C58C8 */
+}
+
+.hover\:fill-primary:hover {
+  fill: rgb(12, 88, 200); /* #0C58C8 */
+}
+
+.focus\:ring-primary:focus {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(12 88 200 / var(--tw-ring-opacity)); /* #0C58C8 */
+}
+
+.focus\:border-primary:focus {
+  --tw-border-opacity: 1;
+  border-color: rgb(12 88 200 / var(--tw-border-opacity)); /* #0C58C8 */
+}
+
+.bg-error {
+  --tw-bg-opacity: 1;
+  background-color: rgb(217 45 32 / var(--tw-bg-opacity)); /* #D92D20 */
+}
+
+.text-error {
+  --tw-text-opacity: 1;
+  color: rgb(217 45 32 / var(--tw-text-opacity)); /* #D92D20 */
+}
+
+.hover\:bg-error-dark:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(180 35 24 / var(--tw-bg-opacity)); /* #B42318 */
+}
+
+.hover\:text-error:hover {
+  --tw-text-opacity: 1;
+  color: rgb(217 45 32 / var(--tw-text-opacity)); /* #D92D20 */
+}
+
+.border-error {
+  --tw-border-opacity: 1;
+  border-color: rgb(217 45 32 / var(--tw-border-opacity)); /* #D92D20 */
+}
+
+.hover\:border-error-dark:hover {
+  --tw-border-opacity: 1;
+  border-color: rgb(180 35 24 / var(--tw-border-opacity)); /* #B42318 */
+}
+
+.focus\:ring-error:focus {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(217 45 32 / var(--tw-ring-opacity)); /* #D92D20 */
+}
+
+.focus\:border-error:focus {
+  --tw-border-opacity: 1;
+  border-color: rgb(217 45 32 / var(--tw-border-opacity)); /* #D92D20 */
+}
+
+.rounded-lg {
+  border-radius: 8px;
+}
+
+.px-3 {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.py-2 {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.pt-4 {
+  padding-top: 1rem;
+}
+
+.pt-8 {
+  padding-top: 2rem;
+}
+
+/* Create button specific styles */
+.create-button {
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* Advanced Options and See All Links styles */
+.advanced-options-link {
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
+  color: #094298;
+}
+
+.advanced-options-link:hover {
+  color: #073e85;
 }
 
 @media (min-width: 768px) {

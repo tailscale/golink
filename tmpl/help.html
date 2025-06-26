@@ -1,118 +1,139 @@
 {{ define "main" }}
-<article class="prose max-w-5xl">
-<p>
-{{go}} links provide short, memorable links for the websites you and your team use most.
+<div class="max-w-5xl">
+  <div class="mb-12">
+    <h2 class="text-2xl font-bold text-gray-900 mb-6">How {{go}} works</h2>
+    <p class="text-gray-900 mb-8 text-lg">
+      {{go}} links provide short, memorable links for the websites you and your team use most.
+    </p>
 
-<h2>Creating {{go}} links</h2>
+    <div class="mb-12">
+      <h3 class="text-xl font-bold text-gray-900 mb-6">Creating {{go}} links</h3>
 
-<p>
-All {{go}} links have a <strong>short name</strong> and a <strong>destination link</strong> that the {{go}} link points to.
-Some notes on short names:
+      <p class="text-gray-900 mb-6">
+        All {{go}} links have a <strong>short name</strong> and a <strong>destination link</strong> that the {{go}} link points to.
+        Some notes on short names:
+      </p>
 
-<ul>
-  <li>names must start with a letter or number
-  <li>names may contain letters, numbers, hyphens, and periods
-  <li>names are <strong>not</strong> case-sensitive ({{go}}/foo is the same as {{go}}/FOO)
-  <li>hyphens are ignored when resolving links ({{go}}/meetingnotes is the same as {{go}}/meeting-notes)
-</ul>
+      <ul class="mb-8 pl-6 text-gray-900 space-y-2">
+        <li>names must start with a letter or number</li>
+        <li>names may contain letters, numbers, hyphens, and periods</li>
+        <li>names are <strong>not</strong> case-sensitive ({{go}}/foo is the same as {{go}}/FOO)</li>
+        <li>hyphens are ignored when resolving links ({{go}}/meetingnotes is the same as {{go}}/meeting-notes)</li>
+      </ul>
 
-<p>
-In simple cases, the destination link is an absolute URL, such as <strong>https://www.google.com/</strong>.
+      <p class="text-gray-900 mb-6">
+        In simple cases, the destination link is an absolute URL, such as <strong>https://www.google.com/</strong>.
+      </p>
 
-<!-- example non-functional form -->
-<div class="flex flex-wrap mx-4">
-  <div class="flex">
-    <label class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{go}}/</label>
-    <input disabled type=text size=15 value="search" class="p-2 my-2 rounded-r-md border-gray-300">
-    <span class="flex m-2 items-center">&rarr;</span>
-  </div>
-  <input disabled type=text size=30 value="https://www.google.com/" class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300">
-  <button disabled type=submit class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Create</button>
-</div>
+    <div class="mb-12">
+      <h3 class="text-xl font-bold text-gray-900 mb-6">Resolving links</h3>
 
-<h2>Resolving links</h2>
+      <p class="text-gray-900 mb-6">
+        When logged in to your Tailscale network, {{go}} links can be entered directly into any browser or command line utility such as curl.
+        You do not need any additional browser extensions.
+      </p>
 
-<p>
-When logged in to your Tailscale network, {{go}} links can be entered directly into any browser or command line utility such as curl.
-You do not need any additional browser extensions.
+      <p class="text-gray-900 mb-6">
+        Any additional path provided after the short name will be added to the end of the destination link.
+        For example, if <strong>{{go}}/who</strong> goes to your company directory at <strong>http://directory/</strong>,
+        then <strong>{{go}}/who/amelie</strong> will go to <strong>http://directory/amelie</strong>.
+      </p>
 
-<p>
-Any additional path provided after the short name will be added to the end of the destination link.
-For example, if <strong>{{go}}/who</strong> goes to your company directory at <strong>http://directory/</strong>,
-then <strong>{{go}}/who/amelie</strong> will go to <strong>http://directory/amelie</strong>.
+      <p class="text-gray-900 mb-8">
+        <a href="#advanced" class="text-primary hover:underline font-medium">Advanced destination links</a> allow you to further customize this behavior.
+      </p>
+    </div>
 
-<p>
-<a href="#advanced">Advanced destination links</a> allow you to further customize this behavior.
+    <div class="mb-12">
+      <h3 id="advanced" class="text-xl font-bold text-gray-900 mb-6">Advanced destination links</h3>
 
-<h2 id="advanced">Advanced destination links</h2>
+      <p class="text-gray-900 mb-6">
+        To have more control over how {{go}} links are resolved, destination links can use <a href="https://pkg.go.dev/text/template" class="text-primary hover:underline">Go template syntax</a>.
+        Templates are provided a data structure with the following fields:
+      </p>
 
-<p>
-To have more control over how {{go}} links are resolved, destination links can use <a href="https://pkg.go.dev/text/template">Go template syntax</a>.
-Templates are provided a data structure with the following fields:
+      <ul class="mb-8 pl-6 text-gray-900 space-y-3">
+        <li><code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">.Path</code> is the remaining path value after the short name (without a leading slash).
+          For the link <strong>{{go}}/who/amelie</strong>, the value of <code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">.Path</code> is <code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">amelie</code>.</li>
+        <li><code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">.Now</code> is a <a href="https://pkg.go.dev/time#Time" class="text-primary hover:underline">time.Time</a> value representing the current date and time.</li>
+        <li><code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">.User</code> is the current user resolving the link.
+          This is the email address of the user or <code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">{username}@github</code> for tailnets that use GitHub authentication.</li>
+      </ul>
 
-<ul>
-  <li><code>.Path</code> is the remaining path value after the short name (without a leading slash).
-    For the link <strong>{{go}}/who/amelie</strong>, the value of <code>.Path</code> is <code>amelie</code>.
-  <li><code>.Now</code> is a <a href="https://pkg.go.dev/time#Time">time.Time</a> value representing the current date and time.
-  <li><code>.User</code> is the current user resolving the link.
-    This is the email address of the user or <code>{username}@github</code> for tailnets that use GitHub authentication.
-</ul>
+      <p class="text-gray-900 mb-6">Templates also have access to the following template functions:</p>
 
-Templates also have access to the following template functions:
+      <ul class="mb-8 pl-6 text-gray-900 space-y-3">
+        <li><code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">PathEscape</code> is the <a href="https://pkg.go.dev/net/url#PathEscape" class="text-primary hover:underline">url.PathEscape</a> function for escaping values inside a URL path.</li>
+        <li><code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">QueryEscape</code> is the <a href="https://pkg.go.dev/net/url#QueryEscape" class="text-primary hover:underline">url.QueryEscape</a> function for escaping values inside a URL query.</li>
+        <li><code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">TrimPrefix</code> is the <a href="https://pkg.go.dev/strings#TrimPrefix" class="text-primary hover:underline">strings.TrimPrefix</a> function for removing a leading prefix.</li>
+        <li><code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">TrimSuffix</code> is the <a href="https://pkg.go.dev/strings#TrimSuffix" class="text-primary hover:underline">strings.TrimSuffix</a> function for removing a trailing suffix.</li>
+        <li><code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">ToLower</code> is the <a href="https://pkg.go.dev/strings#ToLower" class="text-primary hover:underline">strings.ToLower</a> function for mapping all Unicode letters to their lower case.</li>
+        <li><code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">ToUpper</code> is the <a href="https://pkg.go.dev/strings#ToUpper" class="text-primary hover:underline">strings.ToUpper</a> function for mapping all Unicode letters to their upper case.</li>
+        <li><code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">Match</code> is the <a href="https://pkg.go.dev/regexp#MatchString" class="text-primary hover:underline">regexp.MatchString</a> function for matching a regular expression pattern.</li>
+      </ul>
 
-<ul>
-  <li><code>PathEscape</code> is the <a href="https://pkg.go.dev/net/url#PathEscape">url.PathEscape</a> function for escaping values inside a URL path.
-  <li><code>QueryEscape</code> is the <a href="https://pkg.go.dev/net/url#QueryEscape">url.QueryEscape</a> function for escaping values inside a URL query.
-  <li><code>TrimPrefix</code> is the <a href="https://pkg.go.dev/strings#TrimPrefix">strings.TrimPrefix</a> function for removing a leading prefix.
-  <li><code>TrimSuffix</code> is the <a href="https://pkg.go.dev/strings#TrimSuffix">strings.TrimSuffix</a> function for removing a trailing suffix.
-  <li><code>ToLower</code> is the <a href="https://pkg.go.dev/strings#ToLower">strings.ToLower</a> function for mapping all Unicode letters to their lower case.
-  <li><code>ToUpper</code> is the <a href="https://pkg.go.dev/strings#ToUpper">strings.ToUpper</a> function for mapping all Unicode letters to their upper case.
-  <li><code>Match</code> is the <a href="https://pkg.go.dev/regexp#MatchString">regexp.MatchString</a> function for matching a regular expression pattern.
-</ul>
+      <p class="text-gray-900 mb-6">
+        The most common use of advanced destination links is to put the additional path in a custom location in the destination link.
+        For example, you might set the destination for <strong>{{go}}/search</strong> to:
+      </p>
 
-<p>
-The most common use of advanced destination links is to put the additional path in a custom location in the destination link.
-For example, you might set the destination for <strong>{{go}}/search</strong> to:
+      <div class="bg-gray-900 p-6 rounded-lg mb-8 border border-gray-200">
+        <pre class="text-gray-300 text-sm font-mono overflow-x-auto">{{`https://www.google.com/{{if .Path}}search?q={{QueryEscape .Path}}{{end}}`}}</pre>
+      </div>
 
-<pre>{{`https://www.google.com/{{if .Path}}search?q={{QueryEscape .Path}}{{end}}`}}</pre>
+      <p class="text-gray-900 mb-6">
+        When a user visits <strong>{{go}}/search</strong> with no additional path, they will be directed to <a href="https://www.google.com/" class="text-primary hover:underline">https://www.google.com/</a>.
+        If they include an additional path like <strong>{{go}}/search/pangolins</strong>, they will be directed to <a href="https://www.google.com/search?q=pangolins" class="text-primary hover:underline">https://www.google.com/search?q=pangolins</a>.
+      </p>
 
-When a user visits <strong>{{go}}/search</strong> with no additional path, they will be directed to <a href="https://www.google.com/">https://www.google.com/</a>.
-If they include an additional path like <strong>{{go}}/search/pangolins</strong>, they will be directed to <a href="https://www.google.com/search?q=pangolins">https://www.google.com/search?q=pangolins</a>.
+      <h4 class="text-lg font-bold text-gray-900">Examples</h4>
 
-<h3>Examples</h3>
+      <div class="overflow-x-auto mb-12">
+        <table class="table-auto w-full border border-gray-300 rounded-lg bg-white">
+          <thead class="bg-gray-50 border-b border-gray-300">
+            <tr>
+              <th class="p-4 text-left text-sm font-semibold text-gray-900">Description</th>
+              <th class="p-4 text-left text-sm font-semibold text-gray-900">Short Link</th>
+              <th class="p-4 text-left text-sm font-semibold text-gray-900">Destination Template</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="border-b border-gray-200 hover:bg-gray-50">
+              <td class="p-4 text-sm text-gray-900">Include path in query</td>
+              <td class="p-4 text-sm text-gray-900 font-mono">{{go}}/search</td>
+              <td class="p-4"><code class="bg-gray-200 px-3 py-2 rounded-md text-xs font-mono text-gray-800 block">{{`https://cloudsearch.google.com/{{if .Path}}cloudsearch/search?q={{QueryEscape .Path}}{{end}}`}}</code></td>
+            </tr>
+            <tr class="border-b border-gray-200 hover:bg-gray-50">
+              <td class="p-4 text-sm text-gray-900">Include path in destination path</td>
+              <td class="p-4 text-sm text-gray-900 font-mono">{{go}}/slack</td>
+              <td class="p-4"><code class="bg-gray-200 px-3 py-2 rounded-md text-xs font-mono text-gray-800 block">{{`https://company.slack.com/{{if .Path}}channels/{{PathEscape .Path}}{{end}}`}}</code></td>
+            </tr>
+            <tr class="border-b border-gray-200 hover:bg-gray-50">
+              <td class="p-4 text-sm text-gray-900">Include path in hostname</td>
+              <td class="p-4 text-sm text-gray-900 font-mono">{{go}}/varz</td>
+              <td class="p-4"><code class="bg-gray-200 px-3 py-2 rounded-md text-xs font-mono text-gray-800 block">{{`http://{{if .Path}}{{.Path}}{{else}}host{{end}}.example/debug/varz`}}</code></td>
+            </tr>
+            <tr class="hover:bg-gray-50">
+              <td class="p-4 text-sm text-gray-900">Include today's date in wiki page</td>
+              <td class="p-4 text-sm text-gray-900 font-mono">{{go}}/today</td>
+              <td class="p-4"><code class="bg-gray-200 px-3 py-2 rounded-md text-xs font-mono text-gray-800 block">{{`http://wiki/{{.Now.Format "01-02-2006"}}`}}</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-<table>
-  <tr>
-    <td>Include path in query</td>
-    <td>{{go}}/search</td>
-    <td>{{`https://cloudsearch.google.com/{{if .Path}}cloudsearch/search?q={{QueryEscape .Path}}{{end}}`}}</td>
-  </tr>
-  <tr>
-    <td>Include path in destination path</td>
-    <td>{{go}}/slack</td>
-    <td>{{`https://company.slack.com/{{if .Path}}channels/{{PathEscape .Path}}{{end}}`}}</td>
-  </tr>
-  <tr>
-    <td>Include path in hostname</td>
-    <td>{{go}}/varz</td>
-    <td>{{`http://{{if .Path}}{{.Path}}{{else}}host{{end}}.example/debug/varz`}}</td>
-  </tr>
-  <tr>
-    <td>Include today's date in wiki page</td>
-    <td>{{go}}/today</td>
-    <td>{{`http://wiki/{{.Now.Format "01-02-2006"}}`}}</td>
-  </tr>
-</table>
+    <div class="mb-12 pt-8">
+      <h3 id="api" class="text-xl font-bold text-gray-900 mb-6">Application Programming Interface (API)</h3>
+      <p class="text-gray-900 mb-6">
+        There is no formal API, but many endpoints lend themselves to programmatic access.
+      </p>
+      <p class="text-gray-900 mb-6">
+        Include a "+" after a link to get information about a link without resolving it:
+      </p>
 
-<h2 id="api">Application Programming Interface (API)</h2>
-
-<p>
-There is no formal API, but many endpoints lend themselves to programmatic access.
-
-<p>
-Include a "+" after a link to get information about a link without resolving it:
-
-<pre>$ curl -L {{go}}/search+
+      <div class="bg-gray-900 p-6 rounded-lg mb-8 border border-gray-200">
+        <pre class="text-gray-300 text-sm font-mono overflow-x-auto">$ curl -L {{go}}/search+
 {{`{
 "Short": "search",
 "Long": "https://cloudsearch.google.com/{{if .Path}}cloudsearch/search?q={{QueryEscape .Path}}{{end}}",
@@ -120,24 +141,30 @@ Include a "+" after a link to get information about a link without resolving it:
 "LastEdit": "2022-06-13T04:42:08.396702416Z",
 "Owner": "amelie@company.com",
 "Clicks": 8
-}`}}
-</pre>
+}`}}</pre>
+      </div>
 
-<p>
-Visit <a href="/.export">{{go}}/.export</a> to export all saved links and their metadata in <a href="https://jsonlines.org/">JSON Lines format</a>.
-This is useful to create data snapshots that can be restored later.
+      <p class="text-gray-900 mb-6">
+        Visit <a href="/.export" class="text-primary hover:underline">{{go}}/.export</a> to export all saved links and their metadata in <a href="https://jsonlines.org/" class="text-primary hover:underline">JSON Lines format</a>.
+        This is useful to create data snapshots that can be restored later.
+      </p>
 
-<pre>$ curl -L {{go}}/.export
+      <div class="bg-gray-900 p-6 rounded-lg mb-8 border border-gray-200">
+        <pre class="text-gray-300 text-sm font-mono overflow-x-auto">$ curl -L {{go}}/.export
 {{`{"Short":"go","Long":"http://go","Created":"2022-05-31T13:04:44.741457796-07:00","LastEdit":"2022-05-31T13:04:44.741457796-07:00","Owner":"amelie@example.com","Clicks":1}
-{"Short":"slack","Long":"https://company.slack.com/{{if .Path}}channels/{{PathEscape .Path}}{{end}}","Created":"2022-06-17T18:05:43.562948451Z","LastEdit":"2022-06-17T18:06:35.811398Z","Owner":"amelie@example.com","Clicks":4}`}}
-</pre>
+{"Short":"slack","Long":"https://company.slack.com/{{if .Path}}channels/{{PathEscape .Path}}{{end}}","Created":"2022-06-17T18:05:43.562948451Z","LastEdit":"2022-06-17T18:06:35.811398Z","Owner":"amelie@example.com","Clicks":4}`}}</pre>
+      </div>
 
-<p>
-Create a new link by sending a POST request with a <code>short</code> and <code>long</code> value:
+      <p class="text-gray-900 mb-6">
+        Create a new link by sending a POST request with a <code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">short</code> and <code class="bg-gray-200 px-3 py-1 rounded-md text-sm font-mono text-gray-800">long</code> value:
+      </p>
 
-<pre>$ curl -L -H Sec-Golink:1 -d short=cs -d long=https://cs.github.com/ {{go}}
-{{`{"Short":"cs","Long":"https://cs.github.com/","Created":"2022-06-03T22:15:29.993978392Z","LastEdit":"2022-06-03T22:15:29.993978392Z","Owner":"amelie@example.com"}`}}
-</pre>
+      <div class="bg-gray-900 p-6 rounded-lg mb-8 border border-gray-200">
+        <pre class="text-gray-300 text-sm font-mono overflow-x-auto">$ curl -L -H Sec-Golink:1 -d short=cs -d long=https://cs.github.com/ {{go}}
+{{`{"Short":"cs","Long":"https://cs.github.com/","Created":"2022-06-03T22:15:29.993978392Z","LastEdit":"2022-06-03T22:15:29.993978392Z","Owner":"amelie@example.com"}`}}</pre>
+      </div>
+    </div>
 
-</article>
+  </div>
+</div>
 {{ end }}

@@ -57,6 +57,27 @@ As long as this is on a persistent volume, the auth key only needs to be provide
 [tag]: https://tailscale.com/kb/1068/acl-tags/
 [os.UserConfigDir]: https://pkg.go.dev/os#UserConfigDir
 
+## Docker Compose
+
+To run golink via Docker Compose:
+
+```yaml
+volumes:
+  data:
+
+services:
+  golink:
+    image: ghcr.io/tailscale/golink:main
+    container_name: golink
+    restart: unless-stopped
+    volumes:
+      - 'data:/home/nonroot'
+```
+
+To initialize the container with an auth key run:
+
+    docker compose run --rm --env 'TS_AUTHKEY=tskey-auth-<key>' golink
+
 ## MagicDNS
 
 When golink joins your tailnet, it will attempt to use "go" as its node name,

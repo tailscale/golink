@@ -1239,6 +1239,10 @@ select {
   display: none;
 }
 
+.overflow {
+  overflow: auto;
+}
+
 .min-h-screen {
   min-height: 100vh;
 }

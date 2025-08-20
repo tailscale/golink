@@ -1239,10 +1239,6 @@ select {
   display: none;
 }
 
-.overflow {
-  overflow: auto;
-}
-
 .min-h-screen {
   min-height: 100vh;
 }
@@ -1297,6 +1293,10 @@ select {
 
 .items-center {
   align-items: center;
+}
+
+.overflow-auto {
+  overflow: auto;
 }
 
 .truncate {

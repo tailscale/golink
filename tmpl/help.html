@@ -81,28 +81,30 @@ If they include an additional path like <strong>{{go}}/search/pangolins</strong>
 
 <h3>Examples</h3>
 
-<table>
-  <tr>
-    <td>Include path in query</td>
-    <td>{{go}}/search</td>
-    <td>{{`https://cloudsearch.google.com/{{if .Path}}cloudsearch/search?q={{QueryEscape .Path}}{{end}}`}}</td>
-  </tr>
-  <tr>
-    <td>Include path in destination path</td>
-    <td>{{go}}/slack</td>
-    <td>{{`https://company.slack.com/{{if .Path}}channels/{{PathEscape .Path}}{{end}}`}}</td>
-  </tr>
-  <tr>
-    <td>Include path in hostname</td>
-    <td>{{go}}/varz</td>
-    <td>{{`http://{{if .Path}}{{.Path}}{{else}}host{{end}}.example/debug/varz`}}</td>
-  </tr>
-  <tr>
-    <td>Include today's date in wiki page</td>
-    <td>{{go}}/today</td>
-    <td>{{`http://wiki/{{.Now.Format "01-02-2006"}}`}}</td>
-  </tr>
-</table>
+<div class="overflow">
+  <table>
+    <tr>
+      <td>Include path in query</td>
+      <td>{{go}}/search</td>
+      <td>{{`https://cloudsearch.google.com/{{if .Path}}cloudsearch/search?q={{QueryEscape .Path}}{{end}}`}}</td>
+    </tr>
+    <tr>
+      <td>Include path in destination path</td>
+      <td>{{go}}/slack</td>
+      <td>{{`https://company.slack.com/{{if .Path}}channels/{{PathEscape .Path}}{{end}}`}}</td>
+    </tr>
+    <tr>
+      <td>Include path in hostname</td>
+      <td>{{go}}/varz</td>
+      <td>{{`http://{{if .Path}}{{.Path}}{{else}}host{{end}}.example/debug/varz`}}</td>
+    </tr>
+    <tr>
+      <td>Include today's date in wiki page</td>
+      <td>{{go}}/today</td>
+      <td>{{`http://wiki/{{.Now.Format "01-02-2006"}}`}}</td>
+    </tr>
+  </table>
+</div>
 
 <h2 id="api">Application Programming Interface (API)</h2>
 

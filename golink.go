@@ -30,6 +30,8 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/xsrftoken"
 	"tailscale.com/client/tailscale"
 	"tailscale.com/hostinfo"
@@ -75,6 +77,29 @@ var stats struct {
 	// dirty identifies short link clicks that have not yet been stored.
 	dirty ClickStats
 }
+
+var (
+	clickCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "golink_clicks_total",
+			Help: "Total number of clicks for a recognized GoLink",
+		},
+		[]string{"path"},
+	)
+	clickNotFound = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "golink_not_found_total",
+			Help: "Total number of clicks for a GoLink doesn't exist",
+		},
+		[]string{"path"},
+	)
+	totalLinkCount = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "golinks_total",
+			Help: "Total number of GoLinks being served",
+		},
+	)
+)
 
 // LastSnapshot is the data snapshot (as returned by the /.export handler)
 // that will be loaded on startup.
@@ -300,6 +325,8 @@ func init() {
 	b := make([]byte, 24)
 	rand.Read(b)
 	xsrfKey = base64.StdEncoding.EncodeToString(b)
+
+	initMetrics()
 }
 
 var tmplFuncs = template.FuncMap{
@@ -374,6 +401,7 @@ func flushStatsLoop() {
 
 // deleteLinkStats removes the link stats from memory.
 func deleteLinkStats(link *Link) {
+	totalLinkCount.Dec()
 	stats.mu.Lock()
 	delete(stats.clicks, link.Short)
 	delete(stats.dirty, link.Short)
@@ -416,6 +444,13 @@ func HSTS(h http.Handler) http.Handler {
 	})
 }
 
+// initMetrics initializes prometheus metrics.
+func initMetrics() {
+	prometheus.MustRegister(clickCounter)
+	prometheus.MustRegister(totalLinkCount)
+	prometheus.MustRegister(clickNotFound)
+}
+
 // serverHandler returns the main http.Handler for serving all requests.
 func serveHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -426,6 +461,7 @@ func serveHandler() http.Handler {
 	mux.HandleFunc("/.opensearch", serveOpenSearch)
 	mux.HandleFunc("/.all", serveAll)
 	mux.HandleFunc("/.delete/", serveDelete)
+	mux.Handle("/.metrics", promhttp.Handler())
 	mux.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -547,15 +583,19 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if errors.Is(err, fs.ErrNotExist) {
+		clickNotFound.WithLabelValues(short).Inc()
 		w.WriteHeader(http.StatusNotFound)
 		serveHome(w, r, short)
 		return
 	}
 	if err != nil {
+		clickNotFound.WithLabelValues(short).Inc()
 		log.Printf("serving %q: %v", short, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	clickCounter.WithLabelValues(link.Short).Inc()
 
 	stats.mu.Lock()
 	if stats.clicks == nil {
@@ -940,6 +980,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(link)
 	}
+	totalLinkCount.Inc()
 }
 
 // canEditLink returns whether the specified user has permission to edit link.

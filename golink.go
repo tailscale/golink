@@ -357,6 +357,13 @@ func newTemplate(files ...string) *template.Template {
 	return template.Must(t.ParseFS(embeddedFS, tf...))
 }
 
+// initMetrics initialize Prometheus Metrics
+func initMetrics() {
+	prometheus.MustRegister(clickCounter)
+	prometheus.MustRegister(clickNotFound)
+	prometheus.MustRegister(totalLinkCount)
+}
+
 // initStats initializes the in-memory stats counter with counts from db.
 func initStats() error {
 	stats.mu.Lock()
@@ -369,6 +376,14 @@ func initStats() error {
 
 	stats.clicks = clicks
 	stats.dirty = make(ClickStats)
+
+	// Set the totalLinkCount metric to what is saved in the DB
+	var count float64
+	err = db.db.QueryRow("SELECT COUNT(DISTINCT id) FROM Links").Scan(&count)
+	if err != nil {
+		return err
+	}
+	totalLinkCount.Set(count)
 
 	return nil
 }
@@ -442,13 +457,6 @@ func HSTS(h http.Handler) http.Handler {
 		}
 		h.ServeHTTP(w, r)
 	})
-}
-
-// initMetrics initializes prometheus metrics.
-func initMetrics() {
-	prometheus.MustRegister(clickCounter)
-	prometheus.MustRegister(totalLinkCount)
-	prometheus.MustRegister(clickNotFound)
 }
 
 // serverHandler returns the main http.Handler for serving all requests.
@@ -959,11 +967,13 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
+	newLink := false
 	if link == nil {
 		link = &Link{
 			Short:   short,
 			Created: now,
 		}
+		newLink = true
 	}
 	link.Short = short
 	link.Long = long
@@ -980,7 +990,10 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(link)
 	}
-	totalLinkCount.Inc()
+	// If this is a new link and not an update inc
+	if newLink {
+		totalLinkCount.Inc()
+	}
 }
 
 // canEditLink returns whether the specified user has permission to edit link.

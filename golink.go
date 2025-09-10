@@ -163,6 +163,9 @@ func Run() error {
 	if err := initStats(); err != nil {
 		log.Printf("initializing stats: %v", err)
 	}
+	if err := initMetricsData(); err != nil {
+		log.Printf("initializing metrics data: %v", err)
+	}
 
 	// if link specified on command line, resolve and exit
 	if flag.NArg() > 0 {
@@ -357,11 +360,24 @@ func newTemplate(files ...string) *template.Template {
 	return template.Must(t.ParseFS(embeddedFS, tf...))
 }
 
-// initMetrics initialize Prometheus Metrics
+// initMetrics initializes Prometheus Metrics
 func initMetrics() {
 	prometheus.MustRegister(clickCounter)
 	prometheus.MustRegister(clickNotFound)
 	prometheus.MustRegister(totalLinkCount)
+}
+
+// initMetricsData set metrics to what is represented in the DB
+func initMetricsData() error {
+	// Set the totalLinkCount metric to what is saved in the DB
+	var count float64
+	err := db.db.QueryRow("SELECT COUNT(DISTINCT id) FROM Links").Scan(&count)
+	if err != nil {
+		return err
+	}
+	totalLinkCount.Set(count)
+
+	return nil
 }
 
 // initStats initializes the in-memory stats counter with counts from db.
@@ -376,14 +392,6 @@ func initStats() error {
 
 	stats.clicks = clicks
 	stats.dirty = make(ClickStats)
-
-	// Set the totalLinkCount metric to what is saved in the DB
-	var count float64
-	err = db.db.QueryRow("SELECT COUNT(DISTINCT id) FROM Links").Scan(&count)
-	if err != nil {
-		return err
-	}
-	totalLinkCount.Set(count)
 
 	return nil
 }

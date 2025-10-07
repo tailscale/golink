@@ -192,6 +192,21 @@ $ modal deploy golinks.py
 
 </details>
 
+<details>
+  <summary>Deploy on Kubernetes</summary>
+
+  There is an helm chart provided [here](https://github.com/tiesmaster/golink-helm-chart)
+  that can be used to deploy golink to Kubernetes.
+  See the `README.md` for [full instructions](https://github.com/tiesmaster/golink-helm-chart#installing-the-chart),
+  and [helm values](https://github.com/tiesmaster/golink-helm-chart?tab=readme-ov-file#values).
+  But in a nutshell, you can deploy to Kubernetes like this:
+
+  ```sh
+  helm install golink oci://ghcr.io/tiesmaster/golink
+  ```
+
+</details>
+
 ## Permissions
 
 By default, users own the links they create and only they can update or delete those links.

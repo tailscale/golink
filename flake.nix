@@ -19,11 +19,11 @@
       formatter = eachSystem (pkgs: pkgs.nixpkgs-fmt);
 
       devShells = eachSystem (pkgs: {
-        default = pkgs.mkShell { buildInputs = [ pkgs.go_1_24 ]; };
+        default = pkgs.mkShell { buildInputs = [ pkgs.go_1_25 ]; };
       });
 
       packages = eachSystem (pkgs: {
-        default = pkgs.buildGo124Module {
+        default = pkgs.buildGo125Module {
           pname = "golink";
           version = if (self ? shortRev) then self.shortRev else "dev";
           src = pkgs.nix-gitignore.gitignoreSource [ ] ./.;
@@ -39,7 +39,7 @@
               "-X tailscale.com/version.longStamp=${tsVersion}"
               "-X tailscale.com/version.shortStamp=${tsVersion}"
             ];
-          vendorHash = "sha256-9zHQknTsN0yEnj7Wph9Ru5I4ae6rmSAO4OZRd1VvK7A="; # SHA based on vendoring go.mod
+          vendorHash = "sha256-NRA2JaRgcdlezziAyavdrYVGcIPqoPp6Fpfd3esvFT8="; # SHA based on vendoring go.mod
         };
       });
 

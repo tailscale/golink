@@ -33,7 +33,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/xsrftoken"
-	"tailscale.com/client/tailscale"
+	"tailscale.com/client/local"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
@@ -111,7 +111,7 @@ var embeddedFS embed.FS
 // db stores short links.
 var db *SQLiteDB
 
-var localClient *tailscale.LocalClient
+var localClient *local.Client
 
 func Run() error {
 	flag.Parse()

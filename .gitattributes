@@ -1,0 +1,4 @@
+*       text=auto
+*.go    text diff=golang
+*.html  text diff=html
+*.css   text diff=css

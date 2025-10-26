@@ -295,6 +295,7 @@ var (
 
 type visitData struct {
 	Short     string
+	Long      string
 	NumClicks int
 }
 
@@ -495,10 +496,21 @@ func serveHandler() http.Handler {
 func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	var clicks []visitData
 
+	linkMap := map[string]string{}
+	links, err := db.LoadAll()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, link := range links {
+		linkMap[link.Short] = link.Long
+	}
+
 	stats.mu.Lock()
 	for short, numClicks := range stats.clicks {
 		clicks = append(clicks, visitData{
 			Short:     short,
+			Long:      linkMap[short],
 			NumClicks: numClicks,
 		})
 	}

@@ -754,3 +754,76 @@ func TestHTTPSRedirectHandlerWithQuery(t *testing.T) {
 		t.Errorf("got %q; want %q", w.Header().Get("Location"), "https://foobar.com/?query=bar")
 	}
 }
+
+func TestServeSearch(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	links := []*Link{
+		{Short: "alpha", Long: "http://alpha/", Owner: "foo@example.com"},
+		{Short: "beta", Long: "http://beta/", Owner: "foo@example.com"},
+		{Short: "gamma", Long: "http://gamma/", Owner: "bar@example.com"},
+		{Short: "delta", Long: "http://delta/", Owner: "FOO@example.com"},
+	}
+	for _, link := range links {
+		if err := db.Save(link); err != nil {
+			t.Error(err)
+		}
+	}
+
+	tests := []struct {
+		name            string
+		owner           string
+		wantStatus      int
+		wantContains    []string // substrings that should appear in response body
+		wantNotContains []string // substrings that should NOT appear in response body
+	}{
+		{
+			name:            "search by owner with multiple links",
+			owner:           "foo@example.com",
+			wantStatus:      http.StatusOK,
+			wantContains:    []string{"alpha", "beta", "delta", "3 total"},
+			wantNotContains: []string{"gamma"},
+		},
+		{
+			name:         "search by owner case insensitive",
+			owner:        "FOO@EXAMPLE.COM",
+			wantStatus:   http.StatusOK,
+			wantContains: []string{"alpha", "beta", "delta"},
+		},
+		{
+			name:            "search by owner with single link",
+			owner:           "bar@example.com",
+			wantStatus:      http.StatusOK,
+			wantContains:    []string{"gamma", "1 total"},
+			wantNotContains: []string{"alpha", "beta"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testURL := "/.search?q=owner:" + url.QueryEscape(tt.owner)
+			r := httptest.NewRequest("GET", testURL, nil)
+			w := httptest.NewRecorder()
+			serveHandler().ServeHTTP(w, r)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("serveSearch(owner=%q) = %d; want %d", tt.owner, w.Code, tt.wantStatus)
+			}
+
+			body := w.Body.String()
+			for _, s := range tt.wantContains {
+				if !strings.Contains(body, s) {
+					t.Errorf("serveSearch(owner=%q) body missing %q", tt.owner, s)
+				}
+			}
+			for _, s := range tt.wantNotContains {
+				if strings.Contains(body, s) {
+					t.Errorf("serveSearch(owner=%q) body unexpectedly contains %q", tt.owner, s)
+				}
+			}
+		})
+	}
+}

@@ -125,3 +125,43 @@ func Test_SQLiteDB_SaveLoadDeleteStats(t *testing.T) {
 		t.Errorf("db.LoadStats got %v, want %v", got, want)
 	}
 }
+
+// Test GetLinksByOwner functionality
+func Test_SQLiteDB_GetLinksByOwner(t *testing.T) {
+	db, err := NewSQLiteDB(path.Join(t.TempDir(), "links.db"))
+	if err != nil {
+		t.Error(err)
+	}
+
+	// preload some links with owner
+	links := []*Link{
+		{Short: "a", Owner: "foo@bar.com"},
+		{Short: "B-c", Owner: "bar@foo.com "},
+	}
+	for _, link := range links {
+		if err := db.Save(link); err != nil {
+			t.Error(err)
+		}
+	}
+
+	want := []*Link{
+		{Short: "a", Owner: "foo@bar.com"},
+	}
+	got, err := db.GetLinksByOwner("foo@bar.com")
+	if err != nil {
+		t.Error(err)
+	}
+
+	if !cmp.Equal(got, want) {
+		t.Errorf("db.GetLinksByOwner got %v; want %v", got, want)
+	}
+
+	// confirm empty response for non-existant owner
+	got, err = db.GetLinksByOwner("foo1@bar.com")
+	if err != nil {
+		t.Error(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("db.GetLinksByOwner got %v; want empty slice", got)
+	}
+}

@@ -291,6 +291,9 @@ var (
 
 	// opensearchTmpl is the template used by the http://go/.opensearch page
 	opensearchTmpl *template.Template
+
+	// searchTmpl is the template used by the http://go/.search page
+	searchTmpl *template.Template
 )
 
 type visitData struct {
@@ -305,6 +308,7 @@ type homeData struct {
 	Clicks   []visitData
 	XSRF     string
 	ReadOnly bool
+	User     string
 }
 
 // deleteData is the data used by deleteTmpl.
@@ -324,6 +328,7 @@ func init() {
 	allTmpl = newTemplate("base.html", "all.html")
 	deleteTmpl = newTemplate("base.html", "delete.html")
 	opensearchTmpl = newTemplate("opensearch.xml")
+	searchTmpl = newTemplate("base.html", "search.html")
 
 	b := make([]byte, 24)
 	rand.Read(b)
@@ -477,6 +482,7 @@ func serveHandler() http.Handler {
 	mux.HandleFunc("/.opensearch", serveOpenSearch)
 	mux.HandleFunc("/.all", serveAll)
 	mux.HandleFunc("/.delete/", serveDelete)
+	mux.HandleFunc("/.search/", serveSearch)
 	mux.Handle("/.metrics", promhttp.Handler())
 	mux.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
@@ -539,6 +545,7 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		Clicks:   clicks,
 		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
 		ReadOnly: *readonly,
+		User:     cu.login,
 	})
 }
 
@@ -704,6 +711,22 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	detailTmpl.Execute(w, data)
+}
+
+// serveSearch handles requests to /.search/{query}, where {query} can currently only be
+// the owner as an `owner` query parameter.
+func serveSearch(w http.ResponseWriter, r *http.Request) {
+	owner := r.URL.Query().Get("owner")
+	links, err := db.GetLinksByOwner(owner)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sort.Slice(links, func(i, j int) bool {
+		return links[i].Short < links[j].Short
+	})
+	searchTmpl.Execute(w, links)
 }
 
 type expandEnv struct {

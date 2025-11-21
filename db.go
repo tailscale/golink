@@ -225,3 +225,34 @@ func (s *SQLiteDB) DeleteStats(short string) error {
 	}
 	return nil
 }
+
+// GetLinksByOwner returns all Links owned by the specified owner.
+//
+// It returns fs.ErrNotExist if no links exist for the owner.
+//
+// The caller owns the returned values.
+func (s *SQLiteDB) GetLinksByOwner(owner string) ([]*Link, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var links []*Link
+	rows, err := s.db.Query("SELECT Short, Long, Created, LastEdit, Owner FROM Links WHERE LOWER(Owner) = LOWER(?)", owner)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		link := new(Link)
+		var created, lastEdit int64
+		err := rows.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner)
+		if err != nil {
+			return nil, err
+		}
+		link.Created = time.Unix(created, 0).UTC()
+		link.LastEdit = time.Unix(lastEdit, 0).UTC()
+		links = append(links, link)
+	}
+	if len(links) == 0 {
+		return nil, fs.ErrNotExist
+	}
+	return links, rows.Err()
+}

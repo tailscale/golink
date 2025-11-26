@@ -137,7 +137,7 @@ This is useful to create data snapshots that can be restored later.
 <p>
 Create a new link by sending a POST request with a <code>short</code> and <code>long</code> value:
 
-<pre>$ curl -L -H Sec-Golink:1 -d short=cs -d long=https://cs.github.com/ {{go}}
+<pre>$ curl -L --post302 -H Sec-Golink:1 -d short=cs -d long=https://cs.github.com/ {{go}}
 {{`{"Short":"cs","Long":"https://cs.github.com/","Created":"2022-06-03T22:15:29.993978392Z","LastEdit":"2022-06-03T22:15:29.993978392Z","Owner":"amelie@example.com"}`}}
 </pre>
 

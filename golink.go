@@ -68,6 +68,7 @@ var (
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
 	readonly          = flag.Bool("readonly", false, "start golink server in read-only mode")
+	advertiseTags     = flag.String("advertise-tags", "tag:golink", "comma-separated list of tags to advertise")
 )
 
 var stats struct {
@@ -205,11 +206,12 @@ func Run() error {
 
 	// create tsNet server and wait for it to be ready & connected.
 	srv := &tsnet.Server{
-		ControlURL:   *controlURL,
-		Dir:          *configDir,
-		Hostname:     *hostname,
-		Logf:         func(format string, args ...any) {},
-		RunWebClient: true,
+		ControlURL:    *controlURL,
+		Dir:           *configDir,
+		Hostname:      *hostname,
+		Logf:          func(format string, args ...any) {},
+		RunWebClient:  true,
+		AdvertiseTags: strings.Split(*advertiseTags, ","),
 	}
 	if *verbose {
 		srv.Logf = log.Printf

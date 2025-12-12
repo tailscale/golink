@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/net/xsrftoken"
+	"tailscale.com/tstest"
+	"tailscale.com/types/ptr"
 	"tailscale.com/util/must"
 )
 
@@ -76,6 +78,31 @@ func TestServeGo(t *testing.T) {
 			wantLink:   "http://who/http://host",
 		},
 		{
+			name:       "simple link, trailing period",
+			link:       "/who.",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/",
+		},
+		{
+			name:       "simple link, trailing comma",
+			link:       "/who,",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/",
+		},
+		{
+			// This seems like an incredibly unlikely typo, but test it anyway.
+			name:       "simple link, trailing comma and path",
+			link:       "/who,/p",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/p",
+		},
+		{
+			name:       "simple link, trailing paren",
+			link:       "/who)",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/",
+		},
+		{
 			name:       "user link",
 			link:       "/me",
 			wantStatus: http.StatusFound,
@@ -129,12 +156,19 @@ func TestServeSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	db.Save(&Link{Short: "link-owned-by-tagged-devices", Long: "/before", Owner: "tagged-devices"})
+
+	fooXSRF := func(short string) string {
+		return xsrftoken.Generate(xsrfKey, "foo@example.com", short)
+	}
+	barXSRF := func(short string) string {
+		return xsrftoken.Generate(xsrfKey, "bar@example.com", short)
+	}
 
 	tests := []struct {
 		name              string
 		short             string
+		xsrf              string
 		long              string
 		allowUnknownUsers bool
 		currentUser       func(*http.Request) (user, error)
@@ -155,12 +189,14 @@ func TestServeSave(t *testing.T) {
 		{
 			name:       "save simple link",
 			short:      "who",
+			xsrf:       fooXSRF(newShortName),
 			long:       "http://who/",
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:        "disallow editing another's link",
 			short:       "who",
+			xsrf:        barXSRF("who"),
 			long:        "http://who/",
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com"}, nil },
 			wantStatus:  http.StatusForbidden,
@@ -168,6 +204,7 @@ func TestServeSave(t *testing.T) {
 		{
 			name:        "allow editing link owned by tagged-devices",
 			short:       "link-owned-by-tagged-devices",
+			xsrf:        barXSRF("link-owned-by-tagged-devices"),
 			long:        "/after",
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com"}, nil },
 			wantStatus:  http.StatusOK,
@@ -175,6 +212,7 @@ func TestServeSave(t *testing.T) {
 		{
 			name:        "admins can edit any link",
 			short:       "who",
+			xsrf:        barXSRF("who"),
 			long:        "http://who/",
 			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com", isAdmin: true}, nil },
 			wantStatus:  http.StatusOK,
@@ -182,6 +220,7 @@ func TestServeSave(t *testing.T) {
 		{
 			name:        "disallow unknown users",
 			short:       "who2",
+			xsrf:        fooXSRF("who2"),
 			long:        "http://who/",
 			currentUser: func(*http.Request) (user, error) { return user{}, errors.New("") },
 			wantStatus:  http.StatusInternalServerError,
@@ -193,6 +232,13 @@ func TestServeSave(t *testing.T) {
 			allowUnknownUsers: true,
 			currentUser:       func(*http.Request) (user, error) { return user{}, nil },
 			wantStatus:        http.StatusOK,
+		},
+		{
+			name:       "invalid xsrf",
+			short:      "goat",
+			xsrf:       fooXSRF("sheep"),
+			long:       "https://goat.example.com/goat.php?goat=true",
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -213,6 +259,7 @@ func TestServeSave(t *testing.T) {
 			r := httptest.NewRequest("POST", "/", strings.NewReader(url.Values{
 				"short": {tt.short},
 				"long":  {tt.long},
+				"xsrf":  {tt.xsrf},
 			}.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
@@ -252,7 +299,7 @@ func TestServeDelete(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "non-existant link",
+			name:       "nonexistent link",
 			short:      "does-not-exist",
 			wantStatus: http.StatusNotFound,
 		},
@@ -309,6 +356,108 @@ func TestServeDelete(t *testing.T) {
 				t.Errorf("serveDelete(%q) = %d; want %d", tt.short, w.Code, tt.wantStatus)
 			}
 		})
+	}
+}
+
+func TestServeExport(t *testing.T) {
+	clock := tstest.NewClock(tstest.ClockOpts{
+		Start: time.Date(2022, 06, 02, 1, 2, 3, 4, time.UTC),
+	})
+
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	db.clock = clock
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Save(&Link{Short: "a", Owner: "a@example.com"})
+	db.Save(&Link{Short: "foo", Owner: "foo@example.com"})
+	db.Save(&Link{Short: "link-owned-by-tagged-devices", Long: "/before", Owner: "tagged-devices"})
+
+	click := func(id string) {
+		r := httptest.NewRequest("GET", "/"+id, nil)
+		w := httptest.NewRecorder()
+		serveHandler().ServeHTTP(w, r)
+	}
+	initStats()
+	click("a")
+	click("foo")
+	click("foo")
+	flushStats()
+	clock.Advance(3 * time.Minute)
+	click("a")
+
+	// export links
+	r := httptest.NewRequest("GET", "/.export", nil)
+	w := httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+
+	if want := http.StatusOK; w.Code != want {
+		t.Errorf("serveExport = %d; want %d", w.Code, want)
+	}
+	wantOutput := `{"Short":"a","Long":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"a@example.com"}
+{"Short":"foo","Long":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"foo@example.com"}
+{"Short":"link-owned-by-tagged-devices","Long":"/before","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"tagged-devices"}
+`
+	if got := w.Body.String(); got != wantOutput {
+		t.Errorf("serveExport = %v; want %v", got, wantOutput)
+	}
+
+	// export links stats
+	r = httptest.NewRequest("GET", "/.export-stats", nil)
+	w = httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+
+	if want := http.StatusOK; w.Code != want {
+		t.Errorf("serveExportStats = %d; want %d", w.Code, want)
+	}
+	wantOutput = `a,1654131723,1
+foo,1654131723,2
+a,1654131903,1
+`
+	if got := w.Body.String(); got != wantOutput {
+		t.Errorf("serveExportStats = %v; want %v", got, wantOutput)
+	}
+}
+
+func TestReadOnlyMode(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Save(&Link{Short: "who", Long: "http://who/"})
+
+	oldReadOnly := readonly
+	readonly = ptr.To(true)
+	defer func() { readonly = oldReadOnly }()
+
+	// resolving link should succeed
+	r := httptest.NewRequest("GET", "/who", nil)
+	w := httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+	if want := http.StatusFound; w.Code != want {
+		t.Errorf("serveHandler() = %d; want %d", w.Code, want)
+	}
+	wantLocation := "http://who/"
+	if location := w.Header().Get("Location"); location != wantLocation {
+		t.Errorf("serveHandler() location = %v; want %v", location, wantLocation)
+	}
+
+	// updating link should fail
+	r = httptest.NewRequest("POST", "/", nil)
+	w = httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+	if want := http.StatusMethodNotAllowed; w.Code != want {
+		t.Errorf("serveHandler() = %d; want %d", w.Code, want)
+	}
+
+	// deleting link should fail
+	r = httptest.NewRequest("POST", "/.delete/who", nil)
+	w = httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+	if want := http.StatusMethodNotAllowed; w.Code != want {
+		t.Errorf("serveHandler() = %d; want %d", w.Code, want)
 	}
 }
 
@@ -392,10 +541,40 @@ func TestExpandLink(t *testing.T) {
 			want:      "http://host.com/a%2Fb%2Bc",
 		},
 		{
+			name:      "template-with-trimprefix-func",
+			long:      `http://host.com/{{TrimPrefix .Path "BUG-"}}`,
+			remainder: "BUG-123",
+			want:      "http://host.com/123",
+		},
+		{
 			name:      "template-with-trimsuffix-func",
 			long:      `http://host.com/{{TrimSuffix .Path "/"}}`,
 			remainder: "a/",
 			want:      "http://host.com/a",
+		},
+		{
+			name:      "template-with-tolower-func",
+			long:      `http://host.com/{{ToLower .Path}}`,
+			remainder: "BUG-123",
+			want:      "http://host.com/bug-123",
+		},
+		{
+			name:      "template-with-toupper-func",
+			long:      `http://host.com/{{ToUpper .Path}}`,
+			remainder: "bug-123",
+			want:      "http://host.com/BUG-123",
+		},
+		{
+			name:      "template-with-match-func",
+			long:      `http://host.com/{{if Match "\\d+" .Path}}id/{{.Path}}{{else}}search/{{.Path}}{{end}}`,
+			remainder: "123",
+			want:      "http://host.com/id/123",
+		},
+		{
+			name:      "template-with-match-func2",
+			long:      `http://host.com/{{if Match "\\d+" .Path}}id/{{.Path}}{{else}}search/{{.Path}}{{end}}`,
+			remainder: "query",
+			want:      "http://host.com/search/query",
 		},
 		{
 			name:      "relative-link",
@@ -560,5 +739,18 @@ func TestNoHSTSShortDomain(t *testing.T) {
 				t.Errorf("HSTS expectation: domain %s want: %t got: %t", tt.host, tt.expectHsts, found)
 			}
 		})
+	}
+}
+
+func TestHTTPSRedirectHandlerWithQuery(t *testing.T) {
+	h := redirectHandler("foobar.com")
+	r := httptest.NewRequest("GET", "http://example.com/?query=bar", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusFound {
+		t.Errorf("got %d; want %d", w.Code, http.StatusFound)
+	}
+	if w.Header().Get("Location") != "https://foobar.com/?query=bar" {
+		t.Errorf("got %q; want %q", w.Header().Get("Location"), "https://foobar.com/?query=bar")
 	}
 }

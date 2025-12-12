@@ -30,8 +30,10 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/xsrftoken"
-	"tailscale.com/client/tailscale"
+	"tailscale.com/client/local"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
@@ -39,7 +41,20 @@ import (
 	"tailscale.com/util/dnsname"
 )
 
-const defaultHostname = "go"
+const (
+	defaultHostname = "go"
+
+	// Used as a placeholder short name for generating the XSRF defense token,
+	// when creating new links.
+	newShortName = ".new"
+
+	// If the caller sends this header set to a non-empty value, we will allow
+	// them to make the call even without an XSRF token. JavaScript in browser
+	// cannot set this header, per the [Fetch Spec].
+	//
+	// [Fetch Spec]: https://fetch.spec.whatwg.org
+	secHeaderName = "Sec-Golink"
+)
 
 var (
 	verbose           = flag.Bool("verbose", false, "be verbose")
@@ -49,8 +64,10 @@ var (
 	useHTTPS          = flag.Bool("https", true, "serve golink over HTTPS if enabled on tailnet")
 	snapshot          = flag.String("snapshot", "", "file path of snapshot file")
 	hostname          = flag.String("hostname", defaultHostname, "service name")
+	configDir         = flag.String("config-dir", "", `tsnet configuration directory ("" to use default)`)
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
+	advertiseTags     = flag.String("advertise-tags", "tag:golink", "comma-separated list of tags to advertise")
 )
 
 var stats struct {
@@ -60,6 +77,29 @@ var stats struct {
 	// dirty identifies short link clicks that have not yet been stored.
 	dirty ClickStats
 }
+
+var (
+	clickCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "golink_clicks_total",
+			Help: "Total number of clicks for a recognized GoLink",
+		},
+		[]string{"path"},
+	)
+	clickNotFound = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "golink_not_found_total",
+			Help: "Total number of clicks for a GoLink doesn't exist",
+		},
+		[]string{"path"},
+	)
+	totalLinkCount = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "golinks_total",
+			Help: "Total number of GoLinks being served",
+		},
+	)
+)
 
 // LastSnapshot is the data snapshot (as returned by the /.export handler)
 // that will be loaded on startup.
@@ -71,7 +111,7 @@ var embeddedFS embed.FS
 // db stores short links.
 var db *SQLiteDB
 
-var localClient *tailscale.LocalClient
+var localClient *local.Client
 
 func Run() error {
 	flag.Parse()
@@ -123,6 +163,9 @@ func Run() error {
 	if err := initStats(); err != nil {
 		log.Printf("initializing stats: %v", err)
 	}
+	if err := initMetricsData(); err != nil {
+		log.Printf("initializing metrics data: %v", err)
+	}
 
 	// if link specified on command line, resolve and exit
 	if flag.NArg() > 0 {
@@ -162,10 +205,11 @@ func Run() error {
 
 	// create tsNet server and wait for it to be ready & connected.
 	srv := &tsnet.Server{
-		ControlURL:   *controlURL,
-		Hostname:     *hostname,
-		Logf:         func(format string, args ...any) {},
-		RunWebClient: true,
+		ControlURL:    *controlURL,
+		Hostname:      *hostname,
+		Logf:          func(format string, args ...any) {},
+		RunWebClient:  true,
+		AdvertiseTags: strings.Split(*advertiseTags, ","),
 	}
 	if *verbose {
 		srv.Logf = log.Printf
@@ -254,26 +298,86 @@ type visitData struct {
 	NumClicks int
 }
 
-// homeData is the data used by the homeTmpl template.
+// homeData is the data used by homeTmpl.
 type homeData struct {
-	Short  string
-	Clicks []visitData
+	Short    string
+	Long     string
+	Clicks   []visitData
+	XSRF     string
+	ReadOnly bool
+}
+
+// deleteData is the data used by deleteTmpl.
+type deleteData struct {
+	Short string
+	Long  string
+	XSRF  string
 }
 
 var xsrfKey string
 
 func init() {
-	homeTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/home.html"))
-	detailTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/detail.html"))
-	successTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/success.html"))
-	helpTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/help.html"))
-	allTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/all.html"))
-	deleteTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/base.html", "tmpl/delete.html"))
-	opensearchTmpl = template.Must(template.ParseFS(embeddedFS, "tmpl/opensearch.xml"))
+	homeTmpl = newTemplate("base.html", "home.html")
+	detailTmpl = newTemplate("base.html", "detail.html")
+	successTmpl = newTemplate("base.html", "success.html")
+	helpTmpl = newTemplate("base.html", "help.html")
+	allTmpl = newTemplate("base.html", "all.html")
+	deleteTmpl = newTemplate("base.html", "delete.html")
+	opensearchTmpl = newTemplate("opensearch.xml")
 
 	b := make([]byte, 24)
 	rand.Read(b)
 	xsrfKey = base64.StdEncoding.EncodeToString(b)
+
+	initMetrics()
+}
+
+var tmplFuncs = template.FuncMap{
+	// go is a template function that returns the hostname of the golink service.
+	// This is used throughout the UI to render links, but does not impact link resolution.
+	"go": func() string {
+		if devMode() {
+			// in dev mode, just use "go" instead of "localhost:8080"
+			return defaultHostname
+		}
+		return *hostname
+	},
+}
+
+// newTemplate creates a new template with the specified files in the tmpl directory.
+// The first file name is used as the template name,
+// and tmplFuncs are registered as available funcs.
+// This func panics if unable to parse files.
+func newTemplate(files ...string) *template.Template {
+	if len(files) == 0 {
+		return nil
+	}
+	tf := make([]string, 0, len(files))
+	for _, f := range files {
+		tf = append(tf, "tmpl/"+f)
+	}
+	t := template.New(files[0]).Funcs(tmplFuncs)
+	return template.Must(t.ParseFS(embeddedFS, tf...))
+}
+
+// initMetrics initializes Prometheus Metrics
+func initMetrics() {
+	prometheus.MustRegister(clickCounter)
+	prometheus.MustRegister(clickNotFound)
+	prometheus.MustRegister(totalLinkCount)
+}
+
+// initMetricsData set metrics to what is represented in the DB
+func initMetricsData() error {
+	// Set the totalLinkCount metric to what is saved in the DB
+	var count float64
+	err := db.db.QueryRow("SELECT COUNT(DISTINCT id) FROM Links").Scan(&count)
+	if err != nil {
+		return err
+	}
+	totalLinkCount.Set(count)
+
+	return nil
 }
 
 // initStats initializes the in-memory stats counter with counts from db.
@@ -320,6 +424,7 @@ func flushStatsLoop() {
 
 // deleteLinkStats removes the link stats from memory.
 func deleteLinkStats(link *Link) {
+	totalLinkCount.Dec()
 	stats.mu.Lock()
 	delete(stats.clicks, link.Short)
 	delete(stats.dirty, link.Short)
@@ -332,7 +437,13 @@ func deleteLinkStats(link *Link) {
 // requests. It redirects all requests to the HTTPs version of the same URL.
 func redirectHandler(hostname string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, (&url.URL{Scheme: "https", Host: hostname, Path: r.URL.Path}).String(), http.StatusFound)
+		u := &url.URL{
+			Scheme:   "https",
+			Host:     hostname,
+			Path:     r.URL.Path,
+			RawQuery: r.URL.RawQuery,
+		}
+		http.Redirect(w, r, u.String(), http.StatusFound)
 	})
 }
 
@@ -361,10 +472,12 @@ func serveHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.detail/", serveDetail)
 	mux.HandleFunc("/.export", serveExport)
+	mux.HandleFunc("/.export-stats", serveExportStats)
 	mux.HandleFunc("/.help", serveHelp)
 	mux.HandleFunc("/.opensearch", serveOpenSearch)
 	mux.HandleFunc("/.all", serveAll)
 	mux.HandleFunc("/.delete/", serveDelete)
+	mux.Handle("/.metrics", promhttp.Handler())
 	mux.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -379,7 +492,7 @@ func serveHandler() http.Handler {
 	})
 }
 
-func serveHome(w http.ResponseWriter, short string) {
+func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	var clicks []visitData
 
 	stats.mu.Lock()
@@ -401,9 +514,31 @@ func serveHome(w http.ResponseWriter, short string) {
 		clicks = clicks[:200]
 	}
 
+	var long string
+	if short != "" && localClient != nil {
+		// if a peer exists with the short name, suggest it as the long URL
+		st, err := localClient.Status(r.Context())
+		if err == nil {
+			for _, p := range st.Peer {
+				if host, _, ok := strings.Cut(p.DNSName, "."); ok && host == short {
+					long = "http://" + host + "/"
+					break
+				}
+			}
+		}
+	}
+
+	cu, err := currentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	homeTmpl.Execute(w, homeData{
-		Short:  short,
-		Clicks: clicks,
+		Short:    short,
+		Long:     long,
+		Clicks:   clicks,
+		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+		ReadOnly: *readonly,
 	})
 }
 
@@ -430,19 +565,15 @@ func serveHelp(w http.ResponseWriter, _ *http.Request) {
 }
 
 func serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
-	type opensearchData struct {
-		Hostname string
-	}
-
 	w.Header().Set("Content-Type", "application/opensearchdescription+xml")
-	opensearchTmpl.Execute(w, opensearchData{Hostname: *hostname})
+	opensearchTmpl.Execute(w, nil)
 }
 
 func serveGo(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		switch r.Method {
 		case "GET":
-			serveHome(w, "")
+			serveHome(w, r, "")
 		case "POST":
 			serveSave(w, r)
 		}
@@ -459,15 +590,28 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 
 	link, err := db.Load(short)
 	if errors.Is(err, fs.ErrNotExist) {
+		// Trim common punctuation from the end and try again.
+		// This catches auto-linking and copy/paste issues that include punctuation.
+		if s := strings.TrimRight(short, ".,()[]{}"); short != s {
+			short = s
+			link, err = db.Load(short)
+		}
+	}
+
+	if errors.Is(err, fs.ErrNotExist) {
+		clickNotFound.WithLabelValues(short).Inc()
 		w.WriteHeader(http.StatusNotFound)
-		serveHome(w, short)
+		serveHome(w, r, short)
 		return
 	}
 	if err != nil {
+		clickNotFound.WithLabelValues(short).Inc()
 		log.Printf("serving %q: %v", short, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	clickCounter.WithLabelValues(link.Short).Inc()
 
 	stats.mu.Lock()
 	if stats.clicks == nil {
@@ -520,6 +664,11 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if short != link.Short {
+		// redirect to canonical short name
+		http.Redirect(w, r, "/.detail/"+link.Short, http.StatusFound)
+		return
+	}
 	if err != nil {
 		log.Printf("serving detail %q: %v", short, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -548,7 +697,7 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 	data := detailData{
 		Link:     link,
 		Editable: canEdit,
-		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, short),
+		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, link.Short),
 	}
 	if canEdit && !ownerExists {
 		data.Link.Owner = cu.login
@@ -585,7 +734,16 @@ func (e expandEnv) User() (string, error) {
 var expandFuncMap = texttemplate.FuncMap{
 	"PathEscape":  url.PathEscape,
 	"QueryEscape": url.QueryEscape,
+	"TrimPrefix":  strings.TrimPrefix,
 	"TrimSuffix":  strings.TrimSuffix,
+	"ToLower":     strings.ToLower,
+	"ToUpper":     strings.ToUpper,
+	"Match":       regexMatch,
+}
+
+func regexMatch(pattern string, s string) bool {
+	b, _ := regexp.MatchString(pattern, s)
+	return b
 }
 
 // expandLink returns the expanded long URL to redirect to, executing any
@@ -700,6 +858,10 @@ func userExists(ctx context.Context, login string) (bool, error) {
 var reShortName = regexp.MustCompile(`^\w[\w\-\.]*$`)
 
 func serveDelete(w http.ResponseWriter, r *http.Request) {
+	if *readonly {
+		http.Error(w, "golink is in read-only mode", http.StatusMethodNotAllowed)
+		return
+	}
 	short := strings.TrimPrefix(r.URL.Path, "/.delete/")
 	if short == "" {
 		http.Error(w, "short required", http.StatusBadRequest)
@@ -723,7 +885,12 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, cu.login, short) {
+	// Deletion by CLI has never worked because it has always required the XSRF
+	// token. (Refer to commit c7ac33d04c33743606f6224009a5c73aa0b8dec0.) If we
+	// want to enable deletion via CLI and to honor allowUnknownUsers for
+	// deletion, we could change the below to a call to isRequestAuthorized. For
+	// now, always require the XSRF token, thus maintaining the status quo.
+	if !xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, cu.login, link.Short) {
 		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
 		return
 	}
@@ -734,13 +901,21 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	deleteLinkStats(link)
 
-	deleteTmpl.Execute(w, link)
+	deleteTmpl.Execute(w, deleteData{
+		Short: link.Short,
+		Long:  link.Long,
+		XSRF:  xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+	})
 }
 
 // serveSave handles requests to save or update a Link.  Both short name and
 // long URL are validated for proper format. Existing links may only be updated
 // by their owner.
 func serveSave(w http.ResponseWriter, r *http.Request) {
+	if *readonly {
+		http.Error(w, "golink is in read-only mode", http.StatusMethodNotAllowed)
+		return
+	}
 	short, long := r.FormValue("short"), r.FormValue("long")
 	if short == "" || long == "" {
 		http.Error(w, "short and long required", http.StatusBadRequest)
@@ -764,10 +939,23 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	link, err := db.Load(short)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if !canEditLink(r.Context(), link, cu) {
 		http.Error(w, fmt.Sprintf("cannot update link owned by %q", link.Owner), http.StatusForbidden)
+		return
+	}
+
+	// short name to use for XSRF token.
+	// For new link creation, the special newShortName value is used.
+	tokenShortName := newShortName
+	if link != nil {
+		tokenShortName = link.Short
+	}
+
+	if !isRequestAuthorized(r, cu, tokenShortName) {
+		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
 		return
 	}
 
@@ -787,11 +975,13 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
+	newLink := false
 	if link == nil {
 		link = &Link{
 			Short:   short,
 			Created: now,
 		}
+		newLink = true
 	}
 	link.Short = short
 	link.Long = long
@@ -808,12 +998,19 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(link)
 	}
+	// If this is a new link and not an update inc
+	if newLink {
+		totalLinkCount.Inc()
+	}
 }
 
 // canEditLink returns whether the specified user has permission to edit link.
 // Admin users can edit all links.
 // Non-admin users can only edit their own links or links without an active owner.
 func canEditLink(ctx context.Context, link *Link, u user) bool {
+	if *readonly {
+		return false
+	}
 	if link == nil || link.Owner == "" {
 		// new or unowned link
 		return true
@@ -856,6 +1053,42 @@ func serveExport(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+// serveExportStats prints a snapshot of the stats database table.
+//
+// Stats are printed in CSV format with three columns: link ID, UNIX timestamp, and click count.
+// Each stat line represents the number of clicks in the previous minute.
+func serveExportStats(w http.ResponseWriter, _ *http.Request) {
+	if err := flushStats(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows, err := db.db.Query("SELECT ID, Created, Clicks FROM Stats ORDER BY Created, ID")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}()
+
+	for rows.Next() {
+		var id string
+		var created int64
+		var clicks int
+		err := rows.Scan(&id, &created, &clicks)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// id is not permitted to contain commas, so no need to worry about CSV quoting
+		fmt.Fprintf(w, "%s,%d,%d\n", id, created, clicks)
+	}
+}
+
 func restoreLastSnapshot() error {
 	bs := bufio.NewScanner(bytes.NewReader(LastSnapshot))
 	var restored int
@@ -870,8 +1103,7 @@ func restoreLastSnapshot() error {
 		_, err := db.Load(link.Short)
 		if err == nil {
 			continue // exists
-		}
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		} else if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		if err := db.Save(link); err != nil {
@@ -879,7 +1111,7 @@ func restoreLastSnapshot() error {
 		}
 		restored++
 	}
-	if restored > 0 {
+	if restored > 0 && *verbose {
 		log.Printf("Restored %v links.", restored)
 	}
 	return bs.Err()
@@ -906,4 +1138,15 @@ func resolveLink(link *url.URL) (*url.URL, error) {
 		}
 	}
 	return dst, err
+}
+
+func isRequestAuthorized(r *http.Request, u user, short string) bool {
+	if *allowUnknownUsers {
+		return true
+	}
+	if r.Header.Get(secHeaderName) != "" {
+		return true
+	}
+
+	return xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, u.login, short)
 }

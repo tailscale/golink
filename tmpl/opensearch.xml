@@ -1,8 +1,8 @@
 <OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/" xmlns:moz="http://www.mozilla.org/2006/browser/search/">
-  <ShortName>{{.Hostname}}</ShortName>
+  <ShortName>{{go}}</ShortName>
   <Description>Private shortlinks on your tailnet</Description>
   <InputEncoding>UTF-8</InputEncoding>
-  <Image width="16" height="16" type="image/png">http://{{.Hostname}}/.static/favicon.png</Image>
-  <Url type="text/html" method="get" template="http://{{.Hostname}}/{searchTerms}"/>
-  <moz:SearchForm>http://{{.Hostname}}/</moz:SearchForm>
+  <Image width="16" height="16" type="image/png">http://{{go}}/.static/favicon.png</Image>
+  <Url type="text/html" method="get" template="http://{{go}}/{searchTerms}"/>
+  <moz:SearchForm>http://{{go}}/</moz:SearchForm>
 </OpenSearchDescription>

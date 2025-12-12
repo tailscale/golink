@@ -57,6 +57,27 @@ As long as this is on a persistent volume, the auth key only needs to be provide
 [tag]: https://tailscale.com/kb/1068/acl-tags/
 [os.UserConfigDir]: https://pkg.go.dev/os#UserConfigDir
 
+## Docker Compose
+
+To run golink via Docker Compose:
+
+```yaml
+volumes:
+  data:
+
+services:
+  golink:
+    image: ghcr.io/tailscale/golink:main
+    container_name: golink
+    restart: unless-stopped
+    volumes:
+      - 'data:/home/nonroot'
+```
+
+To initialize the container with an auth key run:
+
+    docker compose run --rm --env 'TS_AUTHKEY=tskey-auth-<key>' golink
+
 ## MagicDNS
 
 When golink joins your tailnet, it will attempt to use "go" as its node name,
@@ -120,6 +141,115 @@ destination="/home/nonroot"
 [flyctl CLI]: https://fly.io/docs/hands-on/install-flyctl/
 
 </details>
+
+<details>
+  <summary>Deploy on Modal</summary>
+
+  See the [Modal docs](https://modal.com/docs/guide/managing-deployments) for full instructions on long-lived deployments.
+
+  Create a `golinks.py` file:
+
+  ```python
+import subprocess
+
+import modal
+
+app = modal.App(name="golinks")
+
+vol = modal.Volume.from_name("golinks-data", create_if_missing=True)
+
+image = modal.Image.from_registry(
+    "golang:1.23.0-bookworm",
+    add_python="3.10",
+).run_commands(["go install -v github.com/tailscale/golink/cmd/golink@latest"])
+
+@app.cls(
+    image=image,
+    secrets=[modal.Secret.from_name("golinks")],
+    volumes={"/root/.config": vol},
+    keep_warm=1,
+    concurrency_limit=1,
+)
+class Golinks:
+    @modal.enter()
+    def start_golinks(self):
+        subprocess.Popen(
+            [
+                "golink",
+                "-verbose",
+                "--sqlitedb",
+                "/root/.config/golink.db",
+            ]
+        )
+```
+
+  Then create your secret and deploy with the [Modal CLI](https://github.com/modal-labs/modal-client):
+
+  ```sh
+$ modal secret create golinks TS_AUTHKEY=<key>
+$ modal deploy golinks.py
+  ```
+
+</details>
+
+<details>
+  <summary>Deploy on Kubernetes</summary>
+
+  There is an helm chart provided [here](https://github.com/tiesmaster/golink-helm-chart)
+  that can be used to deploy golink to Kubernetes.
+  See the `README.md` for [full instructions](https://github.com/tiesmaster/golink-helm-chart#installing-the-chart),
+  and [helm values](https://github.com/tiesmaster/golink-helm-chart?tab=readme-ov-file#values).
+  But in a nutshell, you can deploy to Kubernetes like this:
+
+  ```sh
+  helm install golink oci://ghcr.io/tiesmaster/golink
+  ```
+
+</details>
+
+## Permissions
+
+By default, users own the links they create and only they can update or delete those links.
+Ownership can be transferred to another user from the link edit page.
+Links whose owner is no longer part of the tailnet can be edited by any user,
+at which point that user will become the new owner.
+
+Users can be granted admin access to edit all links using [ACL grants] in your tailnet policy file.
+For example, if you have your golink instance tagged with `tag:golink` and a user group named `group:golink-admins`,
+you can grant them admin access using:
+
+```json
+{
+  "grants": [{
+      "src": ["group:golink-admins"],
+      "dst": ["tag:golink"],
+      "app": {
+        "tailscale.com/cap/golink": [{
+            "admin": true
+        }]
+      }
+  }]
+}
+```
+
+Or if you want to effectively disable the ownership model and allow everyone in your tailnet to edit all links,
+you could assign the grant to `autogroup:member`:
+
+```json
+{
+  "grants": [{
+      "src": ["autogroup:member"],
+      "dst": ["tag:golink"],
+      "app": {
+        "tailscale.com/cap/golink": [{
+            "admin": true
+        }]
+      }
+  }]
+}
+```
+
+[ACL grants]: https://tailscale.com/kb/1324/acl-grants
 
 ## Backups
 

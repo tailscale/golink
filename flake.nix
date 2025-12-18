@@ -102,6 +102,15 @@
               description = "Path to SQLite database";
             };
 
+            controlUrl = mkOption {
+              type = types.str;
+              default = "https://controlplane.tailscale.com";
+              description = ''
+                the URL base of the control plane (i.e. coordination server)
+                (default "https://controlplane.tailscale.com")
+              '';
+            };
+
             tailscaleAuthKeyFile = mkOption {
               type = types.nullOr types.path;
               default = null;
@@ -135,7 +144,10 @@
               enable = true;
               script =
                 let
-                  args = [ "--sqlitedb ${cfg.databaseFile}" ] ++ optionals cfg.verbose [ "--verbose" ];
+                  args = [
+                    "--sqlitedb ${cfg.databaseFile}"
+                    "--control-url ${cfg.controlUrl}"
+                  ] ++ optionals cfg.verbose [ "--verbose" ];
                 in
                 ''
                   ${optionalString (cfg.tailscaleAuthKeyFile != null) ''

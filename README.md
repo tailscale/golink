@@ -37,12 +37,16 @@ to be updated to reflect the new SHA256 of the go dependencies. This can be done
 ./update-flake.sh
 ```
 
+When upgrading golink, database schema migrations are applied automatically on startup with
+no manual intervention required - just update the binary and restart.
+
 ## Joining a tailnet
 
 Create an [auth key] for your tailnet at <https://login.tailscale.com/admin/settings/keys>.
 Configure the auth key to your preferences, but at a minimum we generally recommend:
 
- - add a [tag] (maybe something like `tag:golink`) to make it easier to set ACLs for controlling access and to ensure the node doesn't expires.
+ - add a [tag] (maybe something like `tag:golink`) to make it easier to set ACLs for controlling access and to ensure
+   the node doesn't expires.
  - don't set "ephemeral" so the node isn't removed if it goes offline
 
 Once you have a key, set it as the `TS_AUTHKEY` environment variable when starting golink.
@@ -54,7 +58,9 @@ golink stores its tailscale data files in a `tsnet-golink` directory inside [os.
 As long as this is on a persistent volume, the auth key only needs to be provided on first run.
 
 [auth key]: https://tailscale.com/kb/1085/auth-keys/
+
 [tag]: https://tailscale.com/kb/1068/acl-tags/
+
 [os.UserConfigDir]: https://pkg.go.dev/os#UserConfigDir
 
 ## Docker Compose
@@ -163,6 +169,7 @@ image = modal.Image.from_registry(
     add_python="3.10",
 ).run_commands(["go install -v github.com/tailscale/golink/cmd/golink@latest"])
 
+
 @app.cls(
     image=image,
     secrets=[modal.Secret.from_name("golinks")],
@@ -250,6 +257,102 @@ you could assign the grant to `autogroup:member`:
 ```
 
 [ACL grants]: https://tailscale.com/kb/1324/acl-grants
+
+## Link Deletion and Recovery
+
+golink supports soft deletion of links, allowing you to recover accidentally deleted links.
+When a link is deleted, it's marked as deleted but retained in the database for a configurable period before permanent removal.
+
+### Configuration Flags
+
+Two independent flags control the deletion behavior:
+
+#### `-deleted-retention` (HOW LONG to keep deleted links)
+
+This flag determines the recovery window - how long a deleted link remains recoverable before permanent removal.
+
+**Immediate Deletion (default):**
+```bash
+golink -sqlitedb golink.db -deleted-retention 0
+```
+Deleted links are permanently removed immediately with no recovery option.
+
+**Delayed Deletion (recommended):**
+```bash
+golink -sqlitedb golink.db -deleted-retention 24h
+```
+Deleted links remain recoverable for 24 hours. After this period, they're automatically purged.
+
+Use any valid [Go duration format](https://pkg.go.dev/time#ParseDuration).
+Examples: `1h`, `24h`, `168h` (7 days), `24h30m`.
+
+#### `-cleanup-interval` (HOW OFTEN to remove expired deleted links)
+
+This flag determines the cleanup schedule -
+how often golink checks for and removes links that have exceeded their retention period.
+
+**Immediate Cleanup (default):**
+```bash
+golink -sqlitedb golink.db -deleted-retention 24h -cleanup-interval 0
+```
+Cleanup happens on every link operation (save, delete, etc.).
+Best for small deployments where background overhead is minimal.
+
+**Periodic Cleanup (recommended for production):**
+```bash
+golink -sqlitedb golink.db -deleted-retention 24h -cleanup-interval 1h
+```
+Cleanup checks run at the specified interval (hourly in this example).
+Reduces background work while still removing expired links promptly.
+
+Use any valid [Go duration format](https://pkg.go.dev/time#ParseDuration).
+Examples: `30m` (every 30 minutes), `1h` (hourly), `6h` (every 6 hours).
+
+### Example Configurations
+
+**Development (quick recovery, no background overhead):**
+```bash
+golink -sqlitedb golink.db -deleted-retention 24h -cleanup-interval 0
+```
+
+**Production (24-hour recovery, hourly cleanup):**
+```bash
+golink -sqlitedb golink.db -deleted-retention 24h -cleanup-interval 1h
+```
+
+**Minimal recovery (1-hour grace period, immediate cleanup):**
+```bash
+golink -sqlitedb golink.db -deleted-retention 1h -cleanup-interval 0
+```
+
+### Viewing and Restoring Deleted Links
+
+When using delayed deletion:
+- Visit `http://go/.deleted` to view all soft-deleted links (those within the retention period)
+- Click "Undelete" on any link to restore it
+- Once restored, the link returns to its previous state with full edit history
+
+### Link History and Versioning
+
+golink maintains a complete version history of each link, showing:
+- All previous edits with creation/modification timestamps
+- Current active version marked as "Active" (green)
+- Previous versions marked as "Deleted at [timestamp]" (red) with deletion times and who deleted them
+- Ability to undelete versions directly from history
+
+View the full version history by clicking "Link Details" on any active link.
+The history table shows:
+- **Long URL**: The destination for each version
+- **Owner**: Who created/modified this version
+- **Created**: When this version was created
+- **Status**:
+  - "Active" (green) for the current version
+  - "Deleted at [timestamp]" (red) for soft-deleted versions, showing:
+    - Exact timestamp when deleted
+    - Username of who deleted the link (on second line)
+- **Action**: "Undelete" button to restore deleted versions within the retention period
+
+Full audit trail is maintained - you can see who deleted which link and exactly when it happened.
 
 ## Backups
 

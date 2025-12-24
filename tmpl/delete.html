@@ -3,18 +3,39 @@
 
     <p class="py-4">Deleted this by mistake? You can recreate the same link below.</p>
 
-    <form method="POST" action="/">
-      <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
-      <div class="flex flex-wrap">
-        <div class="flex">
-          <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{go}}/</label>
-          <input id=short name=short required type=text size=15 placeholder="shortname" value="{{.Short}}" pattern="\w[\w\-\.]*" title="Must start with letter or number; may contain letters, numbers, dashes, and periods."
-            class="p-2 my-2 rounded-r-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
-          <span class="flex m-2 items-center">&rarr;</span>
+    <form action="/" method="POST">
+        <input name="xsrf" type="hidden" value="{{ .XSRF }}"/>
+        <div class="flex flex-wrap">
+            <div class="flex">
+                <label
+                    class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700"
+                    for=short
+                >
+                    {{.Scheme}}://{{go}}/
+                </label>
+                <input
+                    class="p-2 my-2 rounded-r-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100"
+                    id=short
+                    name=short pattern="\w[\w\-\.]*"
+                    placeholder="shortname"
+                    required
+                    size=15
+                    title="Must start with letter or number; may contain letters, numbers, dashes, and periods."
+                    type=text
+                    value="{{.Short}}"
+                >
+                <span class="flex m-2 items-center">&rarr;</span>
+            </div>
+            <input
+                class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100"
+                name=long placeholder="https://destination-url" required size=40 type=text
+                value="{{.Long}}"
+            >
         </div>
-        <input name=long required type=text size=40 placeholder="https://destination-url" value="{{.Long}}" class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
-      </div>
 
-      <button type=submit class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Create</button>
+        <button class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600"
+        type=submit>
+        Create
+    </button>
     </form>
 {{ end }}

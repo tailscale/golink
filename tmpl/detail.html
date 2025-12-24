@@ -1,58 +1,111 @@
 {{ define "main" }}
-   <h2 class="text-xl font-bold pb-2">Link Details</h2>
+    <h2 class="text-xl font-bold pb-2">Link Details</h2>
 
     {{ if .Editable }}
-    <form method="POST" action="/">
-      <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
-      <div class="flex flex-wrap">
-        <div class="flex">
-          <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{go}}/</label>
-          <input id=short name=short required type=text size=15 placeholder="shortname" value="{{.Link.Short}}" pattern="\w[\w\-\.]*" title="Must start with letter or number; may contain letters, numbers, dashes, and periods."
-            class="p-2 my-2 rounded-r-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
-          <span class="flex m-2 items-center">&rarr;</span>
-        </div>
-        <input name=long required type=text size=40 placeholder="https://destination-url" value="{{.Link.Long}}" class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
-      </div>
+        <form action="/" method="POST">
+            <input name="xsrf" type="hidden" value="{{ .XSRF }}"/>
+            <div class="flex flex-wrap">
+                <div class="flex">
+                    <label class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700"
+                        for=short>{{.Scheme}}://{{go}}/</label>
+                    <input class="p-2 my-2 rounded-r-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100" id=short
+                        name=short pattern="\w[\w\-\.]*" placeholder="shortname" required size=15
+                        title="Must start with letter or number; may contain letters, numbers, dashes, and periods."
+                        type=text
+                        value="{{.Link.Short}}">
+                    <span class="flex m-2 items-center">&rarr;</span>
+                </div>
+                <input class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100"
+                    name=long placeholder="https://destination-url" required size=40 type=text
+                    value="{{.Link.Long}}"/>
+            </div>
 
-      <p class="text-sm text-gray-500"><a class="text-blue-600 hover:underline" href="/.help">Help and advanced options</a></p>
+            <p class="text-sm text-gray-500"><a class="text-blue-600 hover:underline" href="/.help">Help and advanced
+                options</a></p>
 
-      <label for=owner class="text-sm font-bold block mt-4">Owner</label>
-      <input id=owner name=owner required type=text size=25 placeholder="Owner" value="{{.Link.Owner}}" class="p-2 rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
+            <label class="text-sm font-bold block mt-4" for=owner>Owner</label>
+            <input class="p-2 rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100" id=owner name=owner
+                placeholder="Owner" required size=25 type=text
+                value="{{.Link.Owner}}">
 
-      <dl>
-        <dt class="text-sm font-bold mt-6">Date Created</dt>
-        <dd>{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+            <dl>
+                <dt class="text-sm font-bold mt-6">Date Created</dt>
+                <dd>{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
 
-        <dt class="text-sm font-bold mt-6">Date Last Edited</dt>
-        <dd>{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
-      </dl>
+                <dt class="text-sm font-bold mt-6">Date Last Edited</dt>
+                <dd>{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+            </dl>
 
-      <button type=submit class="py-2 px-4 my-4 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Update</button>
-    </form>
+            <h3 class="text-lg font-bold pb-2 pt-4">Version History</h3>
+            <table class="table-auto w-full max-w-screen-lg overflow-x-auto block">
+                <thead class="border-b border-gray-200 uppercase text-xs text-gray-500 text-left">
+                    <tr class="flex">
+                        <th class="flex-1 p-2">Long URL</th>
+                        <th class="w-32 p-2">Owner</th>
+                        <th class="w-40 p-2">Created</th>
+                        <th class="w-40 p-2">Status</th>
+                        <th class="w-20 p-2"></th>
+                    </tr>
+                </thead>
+                <tbody class="block">
+                    {{range .History}}
+                        <tr class="flex hover:bg-gray-100 group border-b border-gray-200">
+                            <td class="flex-1 p-2 truncate">{{.Long}}</td>
+                            <td class="w-32 p-2 truncate">{{.Owner}}</td>
+                            <td class="w-40 p-2 text-sm">{{.Created.Format "Jan _2, 2006 3:04pm MST"}}</td>
+                            <td class="w-40 p-2">
+                                {{if .DeletedAt}}
+                                    <span class="text-red-600">Deleted at {{.DeletedAt.Format "Jan _2, 2006 3:04pm MST"}}</span>
+                                    {{if .DeletedBy}}<br/><span class="text-xs text-red-500">by {{.DeletedBy}}</span>{{end}}
+                                {{else}}
+                                    <span class="text-green-600">Active</span>
+                                {{end}}
+                            </td>
+                            <td class="w-20 p-2">
+                                {{if .DeletedAt}}
+                                    <form action="/.undelete/{{.Short}}" method="POST">
+                                        <input name="xsrf" type="hidden" value="{{ $.XSRF }}"/>
+                                        <button class="text-blue-600 hover:underline text-sm" type="submit">Undelete</button>
+                                    </form>
+                                {{end}}
+                            </td>
+                        </tr>
+                    {{end}}
+                </tbody>
+            </table>
 
-    <h3 class="text-lg font-bold pb-2 pt-4 text-red-500">Danger Zone</h3>
+            <button class="py-2 px-4 my-4 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600"
+                type=submit>
+                Update
+            </button>
+        </form>
 
-    <form method="POST" action="/.delete/{{.Link.Short}}">
-      <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
-      <button type=submit class="py-2 px-4 my-2 rounded-md bg-red-500 border-red-500 text-white hover:bg-red-600 hover:border-red-600">Delete Link</button>
-    </form>
+        <h3 class="text-lg font-bold pb-2 pt-4 text-red-500">Danger Zone</h3>
+
+        <form action="/.delete/{{.Link.Short}}" method="POST">
+            <input name="xsrf" type="hidden" value="{{ .XSRF }}"/>
+            <button class="py-2 px-4 my-2 rounded-md bg-red-500 border-red-500 text-white hover:bg-red-600 hover:border-red-600"
+                type=submit>
+                Delete Link
+            </button>
+        </form>
 
     {{ else }}
-    <dl>
-      <dt class="text-sm font-bold mt-6">Name</dt>
-      <dd><a class="text-blue-600 hover:underline" href="/{{.Link.Short}}">{{go}}/{{.Link.Short}}</a></dd>
+        <dl>
+            <dt class="text-sm font-bold mt-6">Name</dt>
+            <dd><a class="text-blue-600 hover:underline" href="/{{.Link.Short}}">{{go}}/{{.Link.Short}}</a></dd>
 
-      <dt class="text-sm font-bold mt-6">Destination</dt>
-      <dd>{{.Link.Long}}</dd>
+            <dt class="text-sm font-bold mt-6">Destination</dt>
+            <dd>{{.Link.Long}}</dd>
 
-      <dt class="text-sm font-bold mt-6">Owner</dt>
-      <dd>{{.Link.Owner}}</dd>
+            <dt class="text-sm font-bold mt-6">Owner</dt>
+            <dd>{{.Link.Owner}}</dd>
 
-      <dt class="text-sm font-bold mt-6">Date Created</dt>
-      <dd>{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+            <dt class="text-sm font-bold mt-6">Date Created</dt>
+            <dd>{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
 
-      <dt class="text-sm font-bold mt-6">Date Last Edited</dt>
-      <dd>{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
-    </dl>
+            <dt class="text-sm font-bold mt-6">Date Last Edited</dt>
+            <dd>{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+        </dl>
     {{ end }}
 {{ end }}

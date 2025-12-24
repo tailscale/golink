@@ -1,0 +1,36 @@
+{{ define "main" }}
+    <h2 class="text-xl font-bold pt-6 pb-2">Deleted Links ({{ len . }} total)</h2>
+    <table class="table-auto w-full max-w-screen-lg">
+        <thead class="border-b border-gray-200 uppercase text-xs text-gray-500 text-left">
+            <tr class="flex">
+                <th class="flex-1 p-2">Link</th>
+                <th class="hidden md:block w-60 truncate p-2">Owner</th>
+                <th class="hidden md:block w-32 p-2">Deleted At</th>
+                <th class="w-20 p-2"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {{ range . }}
+                <tr class="flex hover:bg-gray-100 group border-b border-gray-200">
+                    <td class="flex-1 p-2">
+                        <a class="hover:text-blue-500 hover:underline" href="/.detail/{{ .Short }}">
+                            {{go}}/{{ .Short }}
+                        </a>
+                        <p class="text-sm leading-normal text-gray-500 group-hover:text-gray-700 max-w-[75vw] md:max-w-[40vw] truncate">
+                            {{ .Long }}
+                        </p>
+                        <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Owner</span>
+                            {{ .Owner }}</p>
+                        <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Deleted At</span>
+                            {{ .DeletedAt.Format "Jan 2, 2006" }}</p>
+                    </td>
+                    <td class="hidden md:block w-60 truncate p-2">{{ .Owner }}</td>
+                    <td class="hidden md:block w-32 p-2">{{ .DeletedAt.Format "Jan 2, 2006" }}</td>
+                    <td class="w-20 p-2">
+                        <a class="hover:text-blue-500 hover:underline" href="/.undelete/{{ .Short }}">Undelete</a>
+                    </td>
+                </tr>
+            {{ end }}
+        </tbody>
+    </table>
+{{ end }}

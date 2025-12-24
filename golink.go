@@ -47,7 +47,12 @@ const (
 	// Used as a placeholder short name for generating the XSRF defense token,
 	// when creating new links.
 	newShortName = ".new"
+)
 
+type contextKey string
+
+const (
+	CurrentUserKey contextKey = "currentUser"
 	// If the caller sends this header set to a non-empty value, we will allow
 	// them to make the call even without an XSRF token. JavaScript in browser
 	// cannot set this header, per the [Fetch Spec].
@@ -68,6 +73,15 @@ var (
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
 	readonly          = flag.Bool("readonly", false, "start golink server in read-only mode")
+	cleanupInterval   = flag.Duration("cleanup-interval", 0, "how often to check for and cleanup old deleted links (0 = immediate cleanup, >0 = periodic cleanup)")
+	deletedRetention  = flag.Duration("deleted-retention", 0, "grace period to keep soft-deleted links recoverable before hard deletion (0 = immediate deletion, >0 = delay hard deletion by specified duration)")
+)
+
+var (
+	// cleanupChan signals the cleanup loop to run (buffered to handle burst deletes)
+	cleanupChan = make(chan struct{}, 100)
+	// statsCleanupChan queues links whose stats should be cleaned up
+	statsCleanupChan = make(chan string, 100)
 )
 
 var stats struct {
@@ -112,6 +126,13 @@ var embeddedFS embed.FS
 var db *SQLiteDB
 
 var localClient *local.Client
+
+func getScheme(r *http.Request) string {
+	if *useHTTPS && (r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https") {
+		return "https"
+	}
+	return "http"
+}
 
 func Run() error {
 	flag.Parse()
@@ -183,6 +204,9 @@ func Run() error {
 
 	// flush stats periodically
 	go flushStatsLoop()
+
+	// cleanup old deleted links (scheduled if -cleanup-interval > 0, immediate if 0)
+	go cleanupDeletedLinksLoop()
 
 	if *dev != "" {
 		// override default hostname for dev mode
@@ -289,6 +313,12 @@ var (
 	// deleteTmpl is the template used after a link has been deleted.
 	deleteTmpl *template.Template
 
+	// deletedTmpl is the template used to show all deleted links.
+	deletedTmpl *template.Template
+
+	// undeleteTmpl is the template used when showing a deleted link with restore option.
+	undeleteTmpl *template.Template
+
 	// opensearchTmpl is the template used by the http://go/.opensearch page
 	opensearchTmpl *template.Template
 )
@@ -305,13 +335,24 @@ type homeData struct {
 	Clicks   []visitData
 	XSRF     string
 	ReadOnly bool
+	Scheme   string
 }
 
 // deleteData is the data used by deleteTmpl.
 type deleteData struct {
-	Short string
-	Long  string
-	XSRF  string
+	Short  string
+	Long   string
+	XSRF   string
+	Scheme string
+}
+
+// undeleteData is the data used by undeleteTmpl.
+type undeleteData struct {
+	Short       string
+	Long        string
+	DeletedAt   time.Time
+	CanUndelete bool
+	XSRF        string
 }
 
 var xsrfKey string
@@ -323,6 +364,8 @@ func init() {
 	helpTmpl = newTemplate("base.html", "help.html")
 	allTmpl = newTemplate("base.html", "all.html")
 	deleteTmpl = newTemplate("base.html", "delete.html")
+	deletedTmpl = newTemplate("base.html", "deleted.html")
+	undeleteTmpl = newTemplate("base.html", "undelete.html")
 	opensearchTmpl = newTemplate("opensearch.xml")
 
 	b := make([]byte, 24)
@@ -422,7 +465,7 @@ func flushStatsLoop() {
 	}
 }
 
-// deleteLinkStats removes the link stats from memory.
+// deleteLinkStats removes the link stats from memory and queues stats cleanup.
 func deleteLinkStats(link *Link) {
 	totalLinkCount.Dec()
 	stats.mu.Lock()
@@ -430,7 +473,12 @@ func deleteLinkStats(link *Link) {
 	delete(stats.dirty, link.Short)
 	stats.mu.Unlock()
 
-	db.DeleteStats(link.Short)
+	// Queue stats cleanup asynchronously to align with link cleanup timing
+	select {
+	case statsCleanupChan <- link.Short:
+	default:
+		// Buffer full, stats will be cleaned up on next cleanup cycle
+	}
 }
 
 // redirectHandler returns the http.Handler for serving all plaintext HTTP
@@ -476,11 +524,13 @@ func serveHandler() http.Handler {
 	mux.HandleFunc("/.help", serveHelp)
 	mux.HandleFunc("/.opensearch", serveOpenSearch)
 	mux.HandleFunc("/.all", serveAll)
+	mux.HandleFunc("/.deleted", serveDeleted)
 	mux.HandleFunc("/.delete/", serveDelete)
+	mux.HandleFunc("/.undelete/", serveUndelete)
 	mux.Handle("/.metrics", promhttp.Handler())
 	mux.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	baseHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// all internal URLs begin with a leading "."; any other URL is treated as a go link.
 		// Serve go links directly without passing through the ServeMux,
 		// which sometimes modifies the request URL path, which we don't want.
@@ -489,6 +539,21 @@ func serveHandler() http.Handler {
 			return
 		}
 		mux.ServeHTTP(w, r)
+	})
+
+	return withCurrentUserContext(baseHandler)
+}
+
+// withCurrentUserContext is middleware that sets the current user in the request context.
+func withCurrentUserContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cu, err := currentUser(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		ctx := setUserInContext(r.Context(), cu)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -516,12 +581,11 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 
 	var long string
 	if short != "" && localClient != nil {
-		// if a peer exists with the short name, suggest it as the long URL
 		st, err := localClient.Status(r.Context())
 		if err == nil {
 			for _, p := range st.Peer {
 				if host, _, ok := strings.Cut(p.DNSName, "."); ok && host == short {
-					long = "http://" + host + "/"
+					long = getScheme(r) + "://" + host + "/"
 					break
 				}
 			}
@@ -539,6 +603,7 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		Clicks:   clicks,
 		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
 		ReadOnly: *readonly,
+		Scheme:   getScheme(r),
 	})
 }
 
@@ -560,13 +625,39 @@ func serveAll(w http.ResponseWriter, _ *http.Request) {
 	allTmpl.Execute(w, links)
 }
 
-func serveHelp(w http.ResponseWriter, _ *http.Request) {
-	helpTmpl.Execute(w, nil)
+func serveDeleted(w http.ResponseWriter, _ *http.Request) {
+	if err := flushStats(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	links, err := db.LoadAllIncludingDeleted()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var deletedLinks []*Link
+	for _, link := range links {
+		if link.DeletedAt != nil {
+			deletedLinks = append(deletedLinks, link)
+		}
+	}
+
+	sort.Slice(deletedLinks, func(i, j int) bool {
+		return deletedLinks[i].DeletedAt.After(*deletedLinks[j].DeletedAt)
+	})
+
+	deletedTmpl.Execute(w, deletedLinks)
 }
 
-func serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
+func serveHelp(w http.ResponseWriter, r *http.Request) {
+	helpTmpl.Execute(w, map[string]string{"Scheme": getScheme(r)})
+}
+
+func serveOpenSearch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/opensearchdescription+xml")
-	opensearchTmpl.Execute(w, nil)
+	opensearchTmpl.Execute(w, map[string]string{"Scheme": getScheme(r)})
 }
 
 func serveGo(w http.ResponseWriter, r *http.Request) {
@@ -599,6 +690,14 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if errors.Is(err, fs.ErrNotExist) {
+		// Check if it's a soft-deleted link
+		deletedLink, delErr := db.LoadDeleted(short)
+		if delErr == nil && deletedLink != nil {
+			// Link exists but is deleted - offer undelete option
+			serveDeletedLink(w, r, deletedLink)
+			return
+		}
+
 		clickNotFound.WithLabelValues(short).Inc()
 		w.WriteHeader(http.StatusNotFound)
 		serveHome(w, r, short)
@@ -653,7 +752,9 @@ type detailData struct {
 	// Editable indicates whether the current user can edit the link.
 	Editable bool
 	Link     *Link
+	History  []*Link
 	XSRF     string
+	Scheme   string
 }
 
 func serveDetail(w http.ResponseWriter, r *http.Request) {
@@ -694,10 +795,19 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 		log.Printf("looking up tailnet user %q: %v", link.Owner, err)
 	}
 
+	history, err := db.GetLinkHistory(short)
+	if err != nil {
+		log.Printf("getting link history for %q: %v", short, err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	data := detailData{
 		Link:     link,
 		Editable: canEdit,
+		History:  history,
 		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, link.Short),
+		Scheme:   getScheme(r),
 	}
 	if canEdit && !ownerExists {
 		data.Link.Owner = cu.login
@@ -801,6 +911,21 @@ type user struct {
 	isAdmin bool
 }
 
+// setUserInContext returns a new context with the user set.
+func setUserInContext(ctx context.Context, u user) context.Context {
+	return context.WithValue(ctx, CurrentUserKey, u)
+}
+
+// getUserFromContext extracts the user login from the context.
+func getUserFromContext(ctx context.Context) string {
+	if u := ctx.Value(CurrentUserKey); u != nil {
+		if user, ok := u.(user); ok {
+			return user.login
+		}
+	}
+	return ""
+}
+
 // currentUser returns the Tailscale user associated with the request.
 // In most cases, this will be the user that owns the device that made the request.
 // For tagged devices, the value "tagged-devices" is returned.
@@ -895,16 +1020,22 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := db.Delete(short); err != nil {
+	if err := db.Delete(r.Context(), short); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	deleteLinkStats(link)
 
+	select {
+	case cleanupChan <- struct{}{}:
+	default:
+	}
+
 	deleteTmpl.Execute(w, deleteData{
-		Short: link.Short,
-		Long:  link.Long,
-		XSRF:  xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+		Short:  link.Short,
+		Long:   link.Long,
+		XSRF:   xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+		Scheme: getScheme(r),
 	})
 }
 
@@ -985,9 +1116,8 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 	link.Short = short
 	link.Long = long
-	link.LastEdit = now
 	link.Owner = owner
-	if err := db.Save(link); err != nil {
+	if err := db.SaveWithHistory(r.Context(), link); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1031,13 +1161,23 @@ func canEditLink(ctx context.Context, link *Link, u user) bool {
 // serveExport prints a snapshot of the link database. Links are JSON encoded
 // and printed one per line. This format is used to restore link snapshots on
 // startup.
-func serveExport(w http.ResponseWriter, _ *http.Request) {
+func serveExport(w http.ResponseWriter, r *http.Request) {
 	if err := flushStats(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	links, err := db.LoadAll()
+	includeDeleted := r.URL.Query().Get("include_deleted") == "true"
+
+	var links []*Link
+	var err error
+
+	if includeDeleted {
+		links, err = db.LoadAllIncludingDeleted()
+	} else {
+		links, err = db.LoadAll()
+	}
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1100,9 +1240,10 @@ func restoreLastSnapshot() error {
 		if link.Short == "" {
 			continue
 		}
+		// Check if an active link already exists (allow importing deleted links)
 		_, err := db.Load(link.Short)
 		if err == nil {
-			continue // exists
+			continue // active link exists - skip
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
@@ -1149,4 +1290,131 @@ func isRequestAuthorized(r *http.Request, u user, short string) bool {
 	}
 
 	return xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, u.login, short)
+}
+
+func serveUndelete(w http.ResponseWriter, r *http.Request) {
+	if *readonly {
+		http.Error(w, "golink is in read-only mode", http.StatusMethodNotAllowed)
+		return
+	}
+	short := strings.TrimPrefix(r.URL.Path, "/.undelete/")
+	if short == "" {
+		http.Error(w, "short required", http.StatusBadRequest)
+		return
+	}
+
+	cu, err := currentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Load the deleted link
+	link, err := db.LoadDeleted(short)
+	if errors.Is(err, fs.ErrNotExist) {
+		http.Error(w, "deleted link not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if !canEditLink(r.Context(), link, cu) {
+		http.Error(w, fmt.Sprintf("cannot undelete link owned by %q", link.Owner), http.StatusForbidden)
+		return
+	}
+
+	if !isRequestAuthorized(r, cu, link.Short) {
+		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
+		return
+	}
+
+	if err := db.Undelete(r.Context(), short); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Redirect to the restored link's detail page
+	http.Redirect(w, r, "/.detail/"+short, http.StatusFound)
+}
+
+func serveDeletedLink(w http.ResponseWriter, r *http.Request, link *Link) {
+	cu, err := currentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusGone)
+
+	canUndelete := canEditLink(r.Context(), link, cu)
+	xsrfToken := ""
+	if canUndelete {
+		xsrfToken = xsrftoken.Generate(xsrfKey, cu.login, link.Short)
+	}
+
+	data := undeleteData{
+		Short:       link.Short,
+		Long:        link.Long,
+		DeletedAt:   *link.DeletedAt,
+		CanUndelete: canUndelete,
+		XSRF:        xsrfToken,
+	}
+
+	undeleteTmpl.Execute(w, data)
+}
+
+// cleanupDeletedLinksLoop removes old deleted links permanently and handles stats cleanup.
+// When cleanup-interval=0, cleanup is triggered immediately via channel on each delete.
+// When cleanup-interval>0, cleanup runs on a schedule.
+func cleanupDeletedLinksLoop() {
+	const cleanupBatchSize = 1000
+	doCleanup := func() {
+		cutoff := time.Now().Add(-*deletedRetention)
+		totalDeleted := 0
+		for {
+			count, err := db.CleanupDeleted(cutoff, cleanupBatchSize)
+			if err != nil {
+				log.Printf("cleaning up deleted links: %v", err)
+				return
+			}
+			totalDeleted += count
+			if count < cleanupBatchSize {
+				break
+			}
+		}
+
+		if totalDeleted > 0 && *verbose {
+			log.Printf("Permanently removed %d deleted links older than %v", totalDeleted, *deletedRetention)
+		}
+	}
+
+	// Drain stats cleanup queue
+	doStatsCleanup := func() {
+		for {
+			select {
+			case short := <-statsCleanupChan:
+				if err := db.DeleteStats(short); err != nil {
+					log.Printf("cleaning up stats for %q: %v", short, err)
+				}
+			default:
+				return
+			}
+		}
+	}
+
+	if *cleanupInterval > 0 {
+		ticker := time.NewTicker(*cleanupInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			doCleanup()
+			doStatsCleanup()
+		}
+	} else {
+		for range cleanupChan {
+			doCleanup()
+			doStatsCleanup()
+		}
+	}
 }

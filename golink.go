@@ -56,6 +56,14 @@ const (
 	secHeaderName = "Sec-Golink"
 )
 
+// envOr returns the value of the environment variable or the default value if not set.
+func envOr(key, defaultValue string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultValue
+}
+
 var (
 	verbose           = flag.Bool("verbose", false, "be verbose")
 	controlURL        = flag.String("control-url", ipn.DefaultControlURL, "the URL base of the control plane (i.e. coordination server)")
@@ -68,6 +76,7 @@ var (
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
 	readonly          = flag.Bool("readonly", false, "start golink server in read-only mode")
+	serviceName       = flag.String("register-as-service", envOr("TS_SERVICE_NAME", ""), "register as a Tailscale Service (e.g., svc:golink); requires tagged node")
 )
 
 var stats struct {
@@ -239,6 +248,34 @@ out:
 	fqdn := strings.TrimSuffix(status.Self.DNSName, ".")
 
 	httpHandler := serveHandler()
+
+	// Service registration mode: use ListenService instead of standard listeners
+	if *serviceName != "" {
+		if !strings.HasPrefix(*serviceName, "svc:") {
+			return fmt.Errorf("service name must start with 'svc:' prefix, got: %q", *serviceName)
+		}
+
+		log.Printf("Registering as Tailscale Service: %s", *serviceName)
+		serviceListener, err := srv.ListenService(*serviceName, tsnet.ServiceModeHTTP{
+			HTTPS: true,
+			Port:  443,
+		})
+		if err != nil {
+			if errors.Is(err, tsnet.ErrUntaggedServiceHost) {
+				return fmt.Errorf("service registration requires a tagged node; add a tag like 'tag:golink' to this node in the Tailscale admin console")
+			}
+			return fmt.Errorf("failed to register service: %w", err)
+		}
+
+		httpsHandler := HSTS(httpHandler)
+		log.Printf("Serving https://%s/ as service %s ...", fqdn, *serviceName)
+		if err := http.Serve(serviceListener, httpsHandler); err != nil {
+			log.Fatal(err)
+		}
+		return nil
+	}
+
+	// Standard mode: use regular listeners
 	if enableTLS {
 		httpsHandler := HSTS(httpHandler)
 		httpHandler = redirectHandler(fqdn)
@@ -828,15 +865,100 @@ type user struct {
 	isAdmin bool
 }
 
+// checkAdminByLogin checks if a user has admin capabilities by looking up their login name.
+// This is used in service mode where we only have the login name from HTTP headers.
+// It queries the Tailscale daemon status, finds the user, then checks their capabilities.
+func checkAdminByLogin(ctx context.Context, login string) (bool, error) {
+	// Get full status with all users and peers
+	st, err := localClient.Status(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to get status: %w", err)
+	}
+
+	// Find the user ID by login name
+	var targetUserID tailcfg.UserID
+	for userID, profile := range st.User {
+		if profile.LoginName == login {
+			targetUserID = userID
+			break
+		}
+	}
+
+	if targetUserID == 0 {
+		// User not found in status
+		return false, fmt.Errorf("user %q not found in tailnet", login)
+	}
+
+	// Find any peer belonging to this user and check their capabilities
+	// We only need to check one peer since capabilities are per-user, not per-device
+	for _, peer := range st.Peer {
+		if peer.UserID == targetUserID && len(peer.TailscaleIPs) > 0 {
+			// Use WhoIs with the peer's IP to get capabilities
+			whois, err := localClient.WhoIs(ctx, peer.TailscaleIPs[0].String())
+			if err != nil {
+				return false, fmt.Errorf("failed to get capabilities for %q: %w", login, err)
+			}
+
+			// Check if the user has admin capability
+			caps, _ := tailcfg.UnmarshalCapJSON[capabilities](whois.CapMap, peerCapName)
+			for _, cap := range caps {
+				if cap.Admin {
+					return true, nil
+				}
+			}
+			return false, nil
+		}
+	}
+
+	// User has no peers online, can't determine capabilities
+	return false, fmt.Errorf("no online peers found for user %q", login)
+}
+
 // currentUser returns the Tailscale user associated with the request.
 // In most cases, this will be the user that owns the device that made the request.
 // For tagged devices, the value "tagged-devices" is returned.
 // If the user can't be determined (such as requests coming through a subnet router),
 // an error is returned unless the -allow-unknown-users flag is set.
+//
+// When running as a Tailscale Service, authentication is handled via HTTP headers
+// automatically injected by tsnet's internal proxy (Tailscale-User-Login, etc.).
+// For regular mode, authentication uses WhoIs with the connection's RemoteAddr.
 var currentUser = func(r *http.Request) (user, error) {
 	if devMode() {
 		return user{login: "foo@example.com"}, nil
 	}
+
+	// When running as a Tailscale Service, identity headers are automatically injected
+	// by tsnet's internal proxy. Check for these headers first.
+	if tsLogin := r.Header.Get("Tailscale-User-Login"); tsLogin != "" {
+		// Look for a peer from x-forwarded-for header. We'll use that for the
+		// whois/capmap lookup first.
+		xff := r.Header.Get("X-Forwarded-For")
+		if xff != "" {
+			for ip := range strings.SplitSeq(xff, ",") {
+				ip = strings.TrimSpace(ip)
+				whois, err := localClient.WhoIs(r.Context(), ip)
+				if err != nil {
+					// if this lookup fails, try the next x-forwarded-for IP
+					continue
+				}
+
+				caps, _ := tailcfg.UnmarshalCapJSON[capabilities](whois.CapMap, peerCapName)
+				for _, cap := range caps {
+					if cap.Admin {
+						return user{login: tsLogin, isAdmin: true}, nil
+					}
+				}
+			}
+
+		}
+
+		// If we can't determine admin status, just return the user without admin privileges
+		// This allows the service to continue functioning even if the lookup fails
+		return user{login: tsLogin}, nil
+	}
+
+	// Regular mode: use WhoIs with RemoteAddr
 	whois, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
 	if err != nil {
 		if *allowUnknownUsers {

@@ -4,6 +4,8 @@
 package golink
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +17,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/net/xsrftoken"
+	"tailscale.com/client/tailscale/apitype"
+	"tailscale.com/tailcfg"
 	"tailscale.com/tstest"
 	"tailscale.com/types/ptr"
 	"tailscale.com/util/must"
@@ -897,6 +901,146 @@ func TestParseAdvertiseTags(t *testing.T) {
 			}
 			if !tt.wantErr && !slices.Equal(got, tt.want) {
 				t.Errorf("parseAdvertiseTags(%q) diff (-want +got):\n%s", tt.input, cmp.Diff(tt.want, got))
+			}
+		})
+	}
+}
+
+func TestTrustIdentityHeaders(t *testing.T) {
+	tests := []struct {
+		name        string
+		serviceName string // value to set *serviceName to
+		remoteAddr  string
+		want        bool
+	}{
+		{
+			name:        "no service node, loopback",
+			serviceName: "",
+			remoteAddr:  "127.0.0.1:1234",
+			want:        false,
+		},
+		{
+			name:        "service mode, loopback",
+			serviceName: "svc:golink",
+			remoteAddr:  "127.0.0.1:1234",
+			want:        true,
+		},
+		{
+			name:        "service mode, non-loopback",
+			serviceName: "svc:golink",
+			remoteAddr:  "100.64.1.1:1234",
+			want:        false,
+		},
+		{
+			name:        "service mode, IPV6 loopback",
+			serviceName: "svc:golink",
+			remoteAddr:  "[::1]:1234",
+			want:        true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tstest.Replace(t, serviceName, tt.serviceName)
+			r := httptest.NewRequest("GET", "/", nil)
+			r.RemoteAddr = tt.remoteAddr
+			if got := trustIdentityHeaders(r); got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractUserFromHeaders(t *testing.T) {
+	adminCapMap := tailcfg.PeerCapMap{
+		peerCapName: []tailcfg.RawMessage{
+			tailcfg.RawMessage(must.Get(json.Marshal(capabilities{Admin: true}))),
+		},
+	}
+	noCapMap := tailcfg.PeerCapMap{}
+
+	tests := []struct {
+		name      string
+		headers   map[string]string
+		whoisFunc func(context.Context, string) (*apitype.WhoIsResponse, error) // mock for localClient.WhoIs
+		wantLogin string
+		wantAdmin bool
+	}{
+		{
+			name:      "no headers",
+			headers:   nil,
+			wantLogin: "",
+		},
+		{
+			name:      "login header only, no XFF",
+			headers:   map[string]string{"Tailscale-User-Login": "alice@example.com"},
+			wantLogin: "alice@example.com",
+			wantAdmin: false,
+		},
+		{
+			name: "login header with XFF, peer has admin cap",
+			headers: map[string]string{
+				"Tailscale-User-Login": "alice@example.com",
+				"X-Forwarded-For":      "100.64.1.1",
+			},
+			whoisFunc: func(_ context.Context, _ string) (*apitype.WhoIsResponse, error) {
+				return &apitype.WhoIsResponse{CapMap: adminCapMap}, nil
+			},
+			wantLogin: "alice@example.com",
+			wantAdmin: true,
+		},
+		{
+			name: "login header with XFF, peer has no admin cap",
+			headers: map[string]string{
+				"Tailscale-User-Login": "alice@example.com",
+				"X-Forwarded-For":      "100.64.1.1",
+			},
+			whoisFunc: func(_ context.Context, _ string) (*apitype.WhoIsResponse, error) {
+				return &apitype.WhoIsResponse{CapMap: noCapMap}, nil
+			},
+			wantLogin: "alice@example.com",
+			wantAdmin: false,
+		},
+		{
+			name: "login header with XFF, WhoIs fails",
+			headers: map[string]string{
+				"Tailscale-User-Login": "alice@example.com",
+				"X-Forwarded-For":      "100.64.1.1",
+			},
+			whoisFunc: func(_ context.Context, _ string) (*apitype.WhoIsResponse, error) {
+				return nil, errors.New("peer not found")
+			},
+			wantLogin: "alice@example.com",
+			wantAdmin: false,
+		},
+		{
+			name: "Invalid X-Forwarded-For header",
+			headers: map[string]string{
+				"Tailscale-User-Login": "alice@example.com",
+				"X-Forwarded-For":      "invalid-ip",
+			},
+			whoisFunc: func(_ context.Context, _ string) (*apitype.WhoIsResponse, error) {
+				return &apitype.WhoIsResponse{CapMap: adminCapMap}, nil
+			},
+			wantLogin: "alice@example.com",
+			wantAdmin: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.whoisFunc != nil {
+				tstest.Replace(t, &whoisFunc, tt.whoisFunc)
+			}
+
+			r := httptest.NewRequest("GET", "/", nil)
+			for k, v := range tt.headers {
+				r.Header.Set(k, v)
+			}
+			got := extractUserFromHeaders(r)
+			if got.login != tt.wantLogin {
+				t.Errorf("login: got %q, want %q", got.login, tt.wantLogin)
+			}
+			if got.isAdmin != tt.wantAdmin {
+				t.Errorf("isAdmin: got %v, want %v", got.isAdmin, tt.wantAdmin)
 			}
 		})
 	}

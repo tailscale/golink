@@ -57,6 +57,50 @@ As long as this is on a persistent volume, the auth key only needs to be provide
 [tag]: https://tailscale.com/kb/1068/acl-tags/
 [os.UserConfigDir]: https://pkg.go.dev/os#UserConfigDir
 
+## Registering as a Tailscale Service
+
+By default, golink registers as a regular tailnet node. However, you can register it as a [Tailscale Service],
+which provides more stable identity and is especially useful for ephemeral infrastructure (like fly.io)
+where storage may be lost.
+
+To register as a service:
+
+```bash
+TS_AUTHKEY="tskey-auth-<key>" go run ./cmd/golink -sqlitedb golink.db --register-as-service=svc:golink
+```
+
+Or using the environment variable:
+
+```bash
+TS_SERVICE_NAME="svc:golink" TS_AUTHKEY="tskey-auth-<key>" go run ./cmd/golink -sqlitedb golink.db
+```
+
+**Requirements:**
+- The node must be tagged (e.g., `tag:golink`)
+- Your ACL policy must define the service and include auto-approvers
+- Services only support HTTPS on port 443
+
+**Admin Capabilities in Service Mode:**
+
+Admin capability grants work in service mode by looking up the user's capabilities via the Tailscale daemon status API. This means admin permissions are properly enforced based on your ACL policy, just like in regular mode.
+
+Example ACL configuration:
+
+```json
+{
+  "tagOwners": {
+    "tag:golink": ["autogroup:admin"]
+  },
+  "autoApprovers": {
+    "services": {
+      "svc:golink": ["tag:golink"]
+    }
+  }
+}
+```
+
+[Tailscale Service]: https://tailscale.com/kb/1534/services/
+
 ## Docker Compose
 
 To run golink via Docker Compose:

@@ -16,9 +16,9 @@
 # 2. Create a dedicated system user:
 #      sudo useradd --system --no-create-home --shell /usr/sbin/nologin golink
 #
-# 3. Create data and config directories:
-#      sudo mkdir -p /var/lib/golink
-#      sudo chown golink:golink /var/lib/golink
+# 3. Create data, tsnet state, and config directories:
+#      sudo mkdir -p /var/lib/golink/tsnet
+#      sudo chown -R golink:golink /var/lib/golink
 #      sudo mkdir -p /etc/golink
 #
 # 4. Create the auth key file:
@@ -49,7 +49,7 @@ Group=golink
 WorkingDirectory=/var/lib/golink
 EnvironmentFile=/etc/golink/ts-authkey
 
-ExecStart=/usr/local/bin/golink --sqlitedb /var/lib/golink/golink.db --verbose
+ExecStart=/usr/local/bin/golink --sqlitedb /var/lib/golink/golink.db --config-dir /var/lib/golink/tsnet --verbose
 
 Restart=always
 RestartSec=15

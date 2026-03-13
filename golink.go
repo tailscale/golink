@@ -211,6 +211,9 @@ func Run() error {
 		Logf:         func(format string, args ...any) {},
 		RunWebClient: true,
 	}
+	if tags := os.Getenv("TS_ADVERTISE_TAGS"); tags != "" {
+		srv.AdvertiseTags = strings.Split(tags, ",")
+	}
 	if *verbose {
 		srv.Logf = log.Printf
 	}

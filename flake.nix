@@ -13,17 +13,38 @@
     ,
     }:
     let
-      eachSystem = f: nixpkgs.lib.genAttrs (import systems) (s: f nixpkgs.legacyPackages.${s});
+      goVersion = nixpkgs.lib.fileContents ./go.toolchain.version;
+      toolChainRev = nixpkgs.lib.fileContents ./go.toolchain.rev;
+      gitHash = nixpkgs.lib.fileContents ./go.toolchain.rev.sri;
+      eachSystem = f:
+        nixpkgs.lib.genAttrs (import systems) (system:
+          f (import nixpkgs {
+            system = system;
+            overlays = [
+              (final: prev: {
+                go_1_26 = prev.go_1_26.overrideAttrs {
+                  version = goVersion;
+                  src = prev.fetchFromGitHub {
+                    owner = "tailscale";
+                    repo = "go";
+                    rev = toolChainRev;
+                    sha256 = gitHash;
+                  };
+                };
+              })
+            ];
+          }));
+      tailscaleRev = self.rev or "";
     in
     {
       formatter = eachSystem (pkgs: pkgs.nixpkgs-fmt);
 
       devShells = eachSystem (pkgs: {
-        default = pkgs.mkShell { buildInputs = [ pkgs.go_1_25 ]; };
+        default = pkgs.mkShell { buildInputs = [ pkgs.go_1_26 ]; };
       });
 
       packages = eachSystem (pkgs: {
-        default = pkgs.buildGo125Module {
+        default = pkgs.buildGo126Module {
           pname = "golink";
           version = if (self ? shortRev) then self.shortRev else "dev";
           src = pkgs.nix-gitignore.gitignoreSource [ ] ./.;
@@ -39,7 +60,7 @@
               "-X tailscale.com/version.longStamp=${tsVersion}"
               "-X tailscale.com/version.shortStamp=${tsVersion}"
             ];
-          vendorHash = "sha256-Mlc7TgP23t5DQl5Hp5iex77BAP+eDf69M3XlK7azsro="; # SHA based on vendoring go.mod
+          vendorHash = pkgs.lib.fileContents ./go.mod.sri;
         };
       });
 

@@ -68,6 +68,7 @@ var (
 	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
 	readonly          = flag.Bool("readonly", false, "start golink server in read-only mode")
+	advertiseTags     = flag.String("advertise-tags", os.Getenv("TS_ADVERTISE_TAGS"), "comma-separated list of ACL tags to advertise (e.g. tag:golink)")
 )
 
 var stats struct {
@@ -203,16 +204,26 @@ func Run() error {
 		return errors.New("--hostname, if specified, cannot be empty")
 	}
 
+	var tags []string
+	for _, tag := range strings.Split(*advertiseTags, ",") {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		if !strings.HasPrefix(tag, "tag:") {
+			return fmt.Errorf("invalid advertise tag %q: must start with \"tag:\"", tag)
+		}
+		tags = append(tags, tag)
+	}
+
 	// create tsNet server and wait for it to be ready & connected.
 	srv := &tsnet.Server{
-		ControlURL:   *controlURL,
-		Dir:          *configDir,
-		Hostname:     *hostname,
-		Logf:         func(format string, args ...any) {},
-		RunWebClient: true,
-	}
-	if tags := os.Getenv("TS_ADVERTISE_TAGS"); tags != "" {
-		srv.AdvertiseTags = strings.Split(tags, ",")
+		ControlURL:    *controlURL,
+		Dir:           *configDir,
+		Hostname:      *hostname,
+		Logf:          func(format string, args ...any) {},
+		RunWebClient:  true,
+		AdvertiseTags: tags,
 	}
 	if *verbose {
 		srv.Logf = log.Printf

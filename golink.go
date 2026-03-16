@@ -204,16 +204,9 @@ func Run() error {
 		return errors.New("--hostname, if specified, cannot be empty")
 	}
 
-	var tags []string
-	for _, tag := range strings.Split(*advertiseTags, ",") {
-		tag = strings.TrimSpace(tag)
-		if tag == "" {
-			continue
-		}
-		if !strings.HasPrefix(tag, "tag:") {
-			return fmt.Errorf("invalid advertise tag %q: must start with \"tag:\"", tag)
-		}
-		tags = append(tags, tag)
+	tags, err := parseAdvertiseTags(*advertiseTags)
+	if err != nil {
+		return err
 	}
 
 	// create tsNet server and wait for it to be ready & connected.
@@ -1190,4 +1183,21 @@ func isRequestAuthorized(r *http.Request, u user, short string) bool {
 	}
 
 	return xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, u.login, short)
+}
+
+// parseAdvertiseTags parses a comma-separated list of ACL tags.
+// Each tag must start with "tag:". Empty strings are ignored.
+func parseAdvertiseTags(s string) ([]string, error) {
+	var tags []string
+	for _, tag := range strings.Split(s, ",") {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		if !strings.HasPrefix(tag, "tag:") {
+			return nil, fmt.Errorf("invalid advertise tag %q: must start with \"tag:\"", tag)
+		}
+		tags = append(tags, tag)
+	}
+	return tags, nil
 }

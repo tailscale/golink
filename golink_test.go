@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"golang.org/x/net/xsrftoken"
 	"tailscale.com/tstest"
 	"tailscale.com/types/ptr"
@@ -823,6 +825,63 @@ func TestServeSearch(t *testing.T) {
 				if strings.Contains(body, s) {
 					t.Errorf("serveSearch(owner=%q) body unexpectedly contains %q", tt.owner, s)
 				}
+			}
+		})
+	}
+}
+
+func TestParseAdvertiseTags(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name:  "empty string",
+			input: "",
+			want:  nil,
+		},
+		{
+			name:  "single tag",
+			input: "tag:golink",
+			want:  []string{"tag:golink"},
+		},
+		{
+			name:  "multiple tags",
+			input: "tag:golink,tag:server",
+			want:  []string{"tag:golink", "tag:server"},
+		},
+		{
+			name:  "whitespace trimmed",
+			input: " tag:golink , tag:server ",
+			want:  []string{"tag:golink", "tag:server"},
+		},
+		{
+			name:  "trailing comma ignored",
+			input: "tag:golink,",
+			want:  []string{"tag:golink"},
+		},
+		{
+			name:    "missing tag prefix",
+			input:   "golink",
+			wantErr: true,
+		},
+		{
+			name:    "one valid one invalid",
+			input:   "tag:golink,invalid",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseAdvertiseTags(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseAdvertiseTags(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if !tt.wantErr && !slices.Equal(got, tt.want) {
+				t.Errorf("parseAdvertiseTags(%q) diff (-want +got):\n%s", tt.input, cmp.Diff(tt.want, got))
 			}
 		})
 	}

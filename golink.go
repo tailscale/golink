@@ -985,6 +985,13 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	// For new link creation, the special newShortName value is used.
 	tokenShortName := newShortName
 	if link != nil {
+		// If the link already exists and the request came from the create
+		// form (which uses a newShortName XSRF token), return a clear error
+		// instead of the confusing "invalid XSRF token" message.
+		if xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, cu.login, newShortName) {
+			http.Error(w, "The “Create a new link” form cannot be used to update links", http.StatusConflict)
+			return
+		}
 		tokenShortName = link.Short
 	}
 

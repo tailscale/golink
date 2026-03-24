@@ -159,6 +159,7 @@ func TestServeSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Save(&Link{Short: "link-owned-by-tagged-devices", Long: "/before", Owner: "tagged-devices"})
+	db.Save(&Link{Short: "existing", Long: "http://existing/", Owner: "foo@example.com"})
 
 	fooXSRF := func(short string) string {
 		return xsrftoken.Generate(xsrfKey, "foo@example.com", short)
@@ -234,6 +235,13 @@ func TestServeSave(t *testing.T) {
 			allowUnknownUsers: true,
 			currentUser:       func(*http.Request) (user, error) { return user{}, nil },
 			wantStatus:        http.StatusOK,
+		},
+		{
+			name:       "duplicate link from create form",
+			short:      "existing",
+			xsrf:       fooXSRF(newShortName),
+			long:       "http://existing/other",
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "invalid xsrf",

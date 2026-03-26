@@ -236,6 +236,14 @@ func TestServeSave(t *testing.T) {
 			wantStatus:        http.StatusOK,
 		},
 		{
+			name:        "update existing link from home page with newShortName xsrf",
+			short:       "who",
+			xsrf:        barXSRF(newShortName),
+			long:        "http://who/updated",
+			currentUser: func(*http.Request) (user, error) { return user{login: "bar@example.com", isAdmin: true}, nil },
+			wantStatus:  http.StatusOK,
+		},
+		{
 			name:       "invalid xsrf",
 			short:      "goat",
 			xsrf:       fooXSRF("sheep"),

@@ -981,16 +981,20 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// short name to use for XSRF token.
-	// For new link creation, the special newShortName value is used.
-	tokenShortName := newShortName
-	if link != nil {
-		tokenShortName = link.Short
-	}
-
-	if !isRequestAuthorized(r, cu, tokenShortName) {
-		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
-		return
+	// Validate the XSRF token. The token may have been generated with either
+	// newShortName (from the home page create form) or the link's actual short
+	// name (from the detail page edit form). Accept either one for existing
+	// links so that both forms work correctly.
+	if link == nil {
+		if !isRequestAuthorized(r, cu, newShortName) {
+			http.Error(w, "invalid XSRF token", http.StatusBadRequest)
+			return
+		}
+	} else {
+		if !isRequestAuthorized(r, cu, newShortName) && !isRequestAuthorized(r, cu, link.Short) {
+			http.Error(w, "invalid XSRF token", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// allow transferring ownership to valid users. If empty, set owner to current user.

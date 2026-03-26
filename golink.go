@@ -667,6 +667,7 @@ type detailData struct {
 	Editable bool
 	Link     *Link
 	XSRF     string
+	Message  string
 }
 
 func serveDetail(w http.ResponseWriter, r *http.Request) {
@@ -711,6 +712,9 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 		Link:     link,
 		Editable: canEdit,
 		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, link.Short),
+	}
+	if r.URL.Query().Get("exists") == "1" {
+		data.Message = "A link with this short name already exists. You can edit it below."
 	}
 	if canEdit && !ownerExists {
 		data.Link.Owner = cu.login
@@ -983,13 +987,24 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 
 	// short name to use for XSRF token.
 	// For new link creation, the special newShortName value is used.
+	// For existing links, the link's short name is used. This intentionally
+	// prevents the home page "create" form from overwriting an existing link;
+	// to edit an existing link the user must use the detail page edit form
+	// which generates a token scoped to that link's short name.
 	tokenShortName := newShortName
 	if link != nil {
 		tokenShortName = link.Short
 	}
 
 	if !isRequestAuthorized(r, cu, tokenShortName) {
-		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
+		if link != nil && isRequestAuthorized(r, cu, newShortName) {
+			// The user submitted from the home page create form but the link
+			// already exists. Redirect to the detail page so they can edit it
+			// intentionally rather than accidentally overwriting it.
+			http.Redirect(w, r, "/.detail/"+url.PathEscape(short)+"?exists=1", http.StatusSeeOther)
+		} else {
+			http.Error(w, "invalid XSRF token", http.StatusBadRequest)
+		}
 		return
 	}
 

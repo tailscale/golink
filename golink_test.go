@@ -175,6 +175,7 @@ func TestServeSave(t *testing.T) {
 		allowUnknownUsers bool
 		currentUser       func(*http.Request) (user, error)
 		wantStatus        int
+		wantLocation      string
 	}{
 		{
 			name:       "missing short",
@@ -236,6 +237,15 @@ func TestServeSave(t *testing.T) {
 			wantStatus:        http.StatusOK,
 		},
 		{
+			name:         "redirect to detail page when creating link that already exists",
+			short:        "who",
+			xsrf:         barXSRF(newShortName),
+			long:         "http://who/updated",
+			currentUser:  func(*http.Request) (user, error) { return user{login: "bar@example.com", isAdmin: true}, nil },
+			wantStatus:   http.StatusSeeOther,
+			wantLocation: "/.detail/who?exists=1",
+		},
+		{
 			name:       "invalid xsrf",
 			short:      "goat",
 			xsrf:       fooXSRF("sheep"),
@@ -269,6 +279,11 @@ func TestServeSave(t *testing.T) {
 
 			if w.Code != tt.wantStatus {
 				t.Errorf("serveSave(%q, %q) = %d; want %d", tt.short, tt.long, w.Code, tt.wantStatus)
+			}
+			if tt.wantLocation != "" {
+				if got := w.Header().Get("Location"); got != tt.wantLocation {
+					t.Errorf("serveSave(%q, %q) Location = %q; want %q", tt.short, tt.long, got, tt.wantLocation)
+				}
 			}
 		})
 	}

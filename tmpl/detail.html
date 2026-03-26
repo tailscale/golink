@@ -1,4 +1,7 @@
 {{ define "main" }}
+   {{ if .Message }}
+   <div class="py-2 px-4 mb-6 rounded-md border text-sm border-orange-50 bg-orange-0 text-gray-700">{{ .Message }}</div>
+   {{ end }}
    <h2 class="text-xl font-bold pb-2">Link Details</h2>
 
     {{ if .Editable }}

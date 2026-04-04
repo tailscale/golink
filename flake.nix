@@ -52,7 +52,7 @@
             let
               tsVersion =
                 with builtins;
-                head (match ".*tailscale.com v([0-9]+\.[0-9]+\.[0-9]+-?[a-zA-Z]?).*" (readFile ./go.mod));
+                head (match ".*tailscale.com v([0-9]+\\.[0-9]+\\.[0-9]+-?[a-zA-Z]?).*" (readFile ./go.mod));
             in
             [
               "-w"

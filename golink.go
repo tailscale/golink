@@ -664,10 +664,10 @@ func acceptHTML(r *http.Request) bool {
 // detailData is the data used by the detailTmpl template.
 type detailData struct {
 	// Editable indicates whether the current user can edit the link.
-	Editable bool
-	Link     *Link
-	XSRF     string
-	Message  string
+	Editable      bool
+	Link          *Link
+	XSRF          string
+	AlreadyExists bool
 }
 
 func serveDetail(w http.ResponseWriter, r *http.Request) {
@@ -714,7 +714,7 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, link.Short),
 	}
 	if r.URL.Query().Get("exists") == "1" {
-		data.Message = "A link with this short name already exists. You can edit it below."
+		data.AlreadyExists = true
 	}
 	if canEdit && !ownerExists {
 		data.Link.Owner = cu.login

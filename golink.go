@@ -519,10 +519,6 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		}
 		since := db.Now().AddDate(0, 0, -days)
 
-		if err := flushStats(); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
 		clickStats, err := db.LoadStatsSince(since)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

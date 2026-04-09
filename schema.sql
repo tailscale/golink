@@ -12,3 +12,5 @@ CREATE TABLE IF NOT EXISTS Stats (
 	Created  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), -- unix seconds
 	Clicks   INTEGER
 );
+
+CREATE INDEX IF NOT EXISTS idx_stats_created ON Stats (Created);

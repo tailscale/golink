@@ -22,6 +22,11 @@
     {{ end }}
 
     <h2 class="text-xl font-bold pt-6 pb-2">Popular Links</h2>
+    <div class="pb-2">
+      <a href="/?period=7d" class="inline-block text-sm px-2 py-2 mr-2 rounded-md {{if eq .Period "7d"}}bg-blue-500 text-white{{else}}text-blue-600 hover:underline{{end}}">7 days</a>
+      <a href="/?period=30d" class="inline-block text-sm px-2 py-2 mr-2 rounded-md {{if eq .Period "30d"}}bg-blue-500 text-white{{else}}text-blue-600 hover:underline{{end}}">30 days</a>
+      <a href="/" class="inline-block text-sm px-2 py-2 mr-2 rounded-md {{if eq .Period ""}}bg-blue-500 text-white{{else}}text-blue-600 hover:underline{{end}}">All time</a>
+    </div>
     <table class="table-auto ">
       <thead class="border-b border-gray-200 uppercase text-xs text-gray-500 text-left">
         <tr>

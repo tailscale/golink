@@ -192,6 +192,38 @@ func (s *SQLiteDB) LoadStats() (ClickStats, error) {
 	return stats, rows.Err()
 }
 
+// LoadStatsSince returns click stats for links since the given time.
+func (s *SQLiteDB) LoadStatsSince(since time.Time) (ClickStats, error) {
+	allLinks, err := s.LoadAll()
+	if err != nil {
+		return nil, err
+	}
+	linkmap := make(map[string]string, len(allLinks)) // map ID => Short
+	for _, link := range allLinks {
+		linkmap[linkID(link.Short)] = link.Short
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query("SELECT ID, sum(Clicks) FROM Stats WHERE Created >= ? GROUP BY ID", since.Unix())
+	if err != nil {
+		return nil, err
+	}
+	stats := make(map[string]int)
+	for rows.Next() {
+		var id string
+		var clicks int
+		err := rows.Scan(&id, &clicks)
+		if err != nil {
+			return nil, err
+		}
+		short := linkmap[id]
+		stats[short] = clicks
+	}
+	return stats, rows.Err()
+}
+
 // SaveStats records click stats for links.  The provided map includes
 // incremental clicks that have occurred since the last time SaveStats
 // was called.

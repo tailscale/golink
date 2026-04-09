@@ -849,6 +849,92 @@ func TestServeSearch(t *testing.T) {
 	}
 }
 
+func TestServeHomePeriodFilter(t *testing.T) {
+	clock := tstest.NewClock(tstest.ClockOpts{
+		Start: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.clock = clock
+
+	db.Save(&Link{Short: "old-link", Long: "http://old/"})
+	db.Save(&Link{Short: "new-link", Long: "http://new/"})
+
+	// save old stats (40 days ago)
+	if err := db.SaveStats(ClickStats{"old-link": 10}); err != nil {
+		t.Fatal(err)
+	}
+
+	// advance 40 days and save recent stats
+	clock.Advance(40 * 24 * time.Hour)
+	if err := db.SaveStats(ClickStats{"new-link": 5}); err != nil {
+		t.Fatal(err)
+	}
+
+	initStats()
+
+	tests := []struct {
+		name            string
+		period          string
+		wantStatus      int
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name:         "all time shows all links",
+			period:       "",
+			wantStatus:   http.StatusOK,
+			wantContains: []string{"old-link", "new-link"},
+		},
+		{
+			name:            "7d shows only recent link",
+			period:          "7d",
+			wantStatus:      http.StatusOK,
+			wantContains:    []string{"new-link"},
+			wantNotContains: []string{"old-link"},
+		},
+		{
+			name:            "30d shows only recent link",
+			period:          "30d",
+			wantStatus:      http.StatusOK,
+			wantContains:    []string{"new-link"},
+			wantNotContains: []string{"old-link"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url := "/"
+			if tt.period != "" {
+				url = "/?period=" + tt.period
+			}
+			r := httptest.NewRequest("GET", url, nil)
+			w := httptest.NewRecorder()
+			serveHandler().ServeHTTP(w, r)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("serveHome(?period=%s) = %d; want %d", tt.period, w.Code, tt.wantStatus)
+			}
+
+			body := w.Body.String()
+			for _, s := range tt.wantContains {
+				if !strings.Contains(body, s) {
+					t.Errorf("serveHome(?period=%s) body missing %q", tt.period, s)
+				}
+			}
+			for _, s := range tt.wantNotContains {
+				if strings.Contains(body, s) {
+					t.Errorf("serveHome(?period=%s) body unexpectedly contains %q", tt.period, s)
+				}
+			}
+		})
+	}
+}
+
 func TestParseAdvertiseTags(t *testing.T) {
 	tests := []struct {
 		name    string

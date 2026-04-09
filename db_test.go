@@ -6,9 +6,11 @@ package golink
 import (
 	"path"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"tailscale.com/tstest"
 )
 
 // Test saving, loading, and deleting links for SQLiteDB.
@@ -123,6 +125,59 @@ func Test_SQLiteDB_SaveLoadDeleteStats(t *testing.T) {
 	want = ClickStats{}
 	if !cmp.Equal(got, want) {
 		t.Errorf("db.LoadStats got %v, want %v", got, want)
+	}
+}
+
+// Test LoadStatsSince returns only stats since a given time.
+func Test_SQLiteDB_LoadStatsSince(t *testing.T) {
+	clock := tstest.NewClock(tstest.ClockOpts{
+		Start: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+
+	db, err := NewSQLiteDB(path.Join(t.TempDir(), "links.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.clock = clock
+
+	// preload links
+	for _, link := range []*Link{{Short: "a"}, {Short: "b"}} {
+		if err := db.Save(link); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// save stats at initial time (old stats)
+	if err := db.SaveStats(ClickStats{"a": 5, "b": 3}); err != nil {
+		t.Fatal(err)
+	}
+
+	// advance 20 days and save more stats (recent stats)
+	clock.Advance(20 * 24 * time.Hour)
+	if err := db.SaveStats(ClickStats{"a": 2, "b": 7}); err != nil {
+		t.Fatal(err)
+	}
+
+	// LoadStatsSince 10 days ago should only return the recent stats
+	since := clock.Now().Add(-10 * 24 * time.Hour)
+	got, err := db.LoadStatsSince(since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ClickStats{"a": 2, "b": 7}
+	if !cmp.Equal(got, want) {
+		t.Errorf("LoadStatsSince got %v, want %v", got, want)
+	}
+
+	// LoadStatsSince 30 days ago should return all stats
+	since = clock.Now().Add(-30 * 24 * time.Hour)
+	got, err = db.LoadStatsSince(since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = ClickStats{"a": 7, "b": 10}
+	if !cmp.Equal(got, want) {
+		t.Errorf("LoadStatsSince got %v, want %v", got, want)
 	}
 }
 

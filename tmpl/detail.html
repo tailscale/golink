@@ -1,58 +1,58 @@
 {{ define "main" }}
-   <h2 class="text-xl font-bold pb-2">Link Details</h2>
+   <h2 class="text-xl font-bold pb-2 dark:text-white">Link Details</h2>
 
     {{ if .Editable }}
     <form method="POST" action="/">
       <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
       <div class="flex flex-wrap">
         <div class="flex">
-          <label for=short class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{go}}/</label>
+          <label for=short class="flex my-2 px-2 items-center bg-gray-100 dark:bg-gray-700 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-md dark:text-gray-300">http://{{go}}/</label>
           <input id=short name=short required type=text size=15 placeholder="shortname" value="{{.Link.Short}}" pattern="\w[\w\-\.]*" title="Must start with letter or number; may contain letters, numbers, dashes, and periods."
-            class="p-2 my-2 rounded-r-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
-          <span class="flex m-2 items-center">&rarr;</span>
+            class="p-2 my-2 rounded-r-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 disabled:bg-gray-100 dark:disabled:bg-gray-700">
+          <span class="flex m-2 items-center dark:text-gray-300">&rarr;</span>
         </div>
-        <input name=long required type=text size=40 placeholder="https://destination-url" value="{{.Link.Long}}" class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
+        <input name=long required type=text size=40 placeholder="https://destination-url" value="{{.Link.Long}}" class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 disabled:bg-gray-100 dark:disabled:bg-gray-700">
       </div>
 
-      <p class="text-sm text-gray-500"><a class="text-blue-600 hover:underline" href="/.help">Help and advanced options</a></p>
+      <p class="text-sm text-gray-500 dark:text-gray-400"><a class="text-blue-600 dark:text-blue-400 hover:underline" href="/.help">Help and advanced options</a></p>
 
-      <label for=owner class="text-sm font-bold block mt-4">Owner</label>
-      <input id=owner name=owner required type=text size=25 placeholder="Owner" value="{{.Link.Owner}}" class="p-2 rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
+      <label for=owner class="text-sm font-bold block mt-4 dark:text-white">Owner</label>
+      <input id=owner name=owner required type=text size=25 placeholder="Owner" value="{{.Link.Owner}}" class="p-2 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 disabled:bg-gray-100 dark:disabled:bg-gray-700">
 
       <dl>
-        <dt class="text-sm font-bold mt-6">Date Created</dt>
-        <dd>{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+        <dt class="text-sm font-bold mt-6 dark:text-white">Date Created</dt>
+        <dd class="dark:text-gray-300">{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
 
-        <dt class="text-sm font-bold mt-6">Date Last Edited</dt>
-        <dd>{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+        <dt class="text-sm font-bold mt-6 dark:text-white">Date Last Edited</dt>
+        <dd class="dark:text-gray-300">{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
       </dl>
 
-      <button type=submit class="py-2 px-4 my-4 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Update</button>
+      <button type=submit class="py-2 px-4 my-4 rounded-md bg-blue-500 dark:bg-blue-600 border-blue-500 dark:border-blue-700 text-white hover:bg-blue-600 dark:hover:bg-blue-700 hover:border-blue-600 dark:hover:border-blue-800">Update</button>
     </form>
 
-    <h3 class="text-lg font-bold pb-2 pt-4 text-red-500">Danger Zone</h3>
+    <h3 class="text-lg font-bold pb-2 pt-4 text-red-500 dark:text-red-400">Danger Zone</h3>
 
     <form method="POST" action="/.delete/{{.Link.Short}}">
       <input type="hidden" name="xsrf" value="{{ .XSRF }}" />
-      <button type=submit class="py-2 px-4 my-2 rounded-md bg-red-500 border-red-500 text-white hover:bg-red-600 hover:border-red-600">Delete Link</button>
+      <button type=submit class="py-2 px-4 my-2 rounded-md bg-red-500 dark:bg-red-600 border-red-500 dark:border-red-700 text-white hover:bg-red-600 dark:hover:bg-red-700 hover:border-red-600 dark:hover:border-red-700">Delete Link</button>
     </form>
 
     {{ else }}
     <dl>
-      <dt class="text-sm font-bold mt-6">Name</dt>
-      <dd><a class="text-blue-600 hover:underline" href="/{{.Link.Short}}">{{go}}/{{.Link.Short}}</a></dd>
+      <dt class="text-sm font-bold mt-6 dark:text-white">Name</dt>
+      <dd><a class="text-blue-600 dark:text-blue-400 hover:underline" href="/{{.Link.Short}}">{{go}}/{{.Link.Short}}</a></dd>
 
-      <dt class="text-sm font-bold mt-6">Destination</dt>
-      <dd>{{.Link.Long}}</dd>
+      <dt class="text-sm font-bold mt-6 dark:text-white">Destination</dt>
+      <dd class="dark:text-gray-300">{{.Link.Long}}</dd>
 
-      <dt class="text-sm font-bold mt-6">Owner</dt>
-      <dd>{{.Link.Owner}}</dd>
+      <dt class="text-sm font-bold mt-6 dark:text-white">Owner</dt>
+      <dd class="dark:text-gray-300">{{.Link.Owner}}</dd>
 
-      <dt class="text-sm font-bold mt-6">Date Created</dt>
-      <dd>{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+      <dt class="text-sm font-bold mt-6 dark:text-white">Date Created</dt>
+      <dd class="dark:text-gray-300">{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
 
-      <dt class="text-sm font-bold mt-6">Date Last Edited</dt>
-      <dd>{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
+      <dt class="text-sm font-bold mt-6 dark:text-white">Date Last Edited</dt>
+      <dd class="dark:text-gray-300">{{.Link.LastEdit.Format "Jan _2, 2006 3:04pm MST"}}</dd>
     </dl>
     {{ end }}
 {{ end }}

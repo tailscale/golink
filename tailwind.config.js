@@ -1,4 +1,5 @@
 module.exports = {
+  darkMode: "media", // Uses prefers-color-scheme
   content: ["./tmpl/*.html"],
   theme: {
     colors: {

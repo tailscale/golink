@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="scroll-smooth">
 <head>
   <title>{{go}}/</title>
   <link rel="stylesheet" href="/.static/base.css">
@@ -8,10 +8,10 @@
   <link rel="icon" href="/.static/favicon.png">
   <link rel="icon" href="/.static/favicon.svg">
 </head>
-<body class="flex flex-col min-h-screen">
-  <div class="bg-gray-100 border-b border-gray-200 pt-4 pb-2 mb-6">
+<body class="flex flex-col min-h-screen dark:bg-gray-900 dark:text-gray-100">
+  <div class="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pt-4 pb-2 mb-6">
     <header class="container mx-auto px-4">
-      <h1 class="text-2xl font-bold pb-1"><a href="/">{{go}}/</a></h1>
+      <h1 class="text-2xl font-bold pb-1 dark:text-white"><a href="/">{{go}}/</a></h1>
       A private shortlink service for your tailnet
     </header>
   </div>
@@ -19,7 +19,7 @@
   <main class="container mx-auto px-4 flex-1">
     {{ block "main" .}}{{ end }}
   </main>
-  <footer class="bg-gray-100 border-t border-gray-200 pt-2 pb-2 mt-6">
+  <footer class="bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 pt-2 pb-2 mt-6">
     <div class="container mx-auto px-4 leading-6 text-right">
       From the nerds at
       <a href="https://tailscale.com/" class="inline-block align-text-top">

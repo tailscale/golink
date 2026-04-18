@@ -1,53 +1,53 @@
 {{ define "main" }}
-<article class="prose max-w-5xl">
-<p>
+<article class="prose dark:prose-invert max-w-5xl">
+<p class="dark:text-gray-200">
 {{go}} links provide short, memorable links for the websites you and your team use most.
 
-<h2>Creating {{go}} links</h2>
+<h2 class="dark:text-white">Creating {{go}} links</h2>
 
-<p>
+<p class="dark:text-gray-200">
 All {{go}} links have a <strong>short name</strong> and a <strong>destination link</strong> that the {{go}} link points to.
 Some notes on short names:
 
-<ul>
+<ul class="dark:text-gray-200">
   <li>names must start with a letter or number
   <li>names may contain letters, numbers, hyphens, and periods
   <li>names are <strong>not</strong> case-sensitive ({{go}}/foo is the same as {{go}}/FOO)
   <li>hyphens are ignored when resolving links ({{go}}/meetingnotes is the same as {{go}}/meeting-notes)
 </ul>
 
-<p>
+<p class="dark:text-gray-200">
 In simple cases, the destination link is an absolute URL, such as <strong>https://www.google.com/</strong>.
 
 <!-- example non-functional form -->
 <div class="flex flex-wrap mx-4">
   <div class="flex">
-    <label class="flex my-2 px-2 items-center bg-gray-100 border border-r-0 border-gray-300 rounded-l-md text-gray-700">http://{{go}}/</label>
-    <input disabled type=text size=15 value="search" class="p-2 my-2 rounded-r-md border-gray-300">
-    <span class="flex m-2 items-center">&rarr;</span>
+    <label class="flex my-2 px-2 items-center bg-gray-100 dark:bg-gray-700 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-md dark:text-gray-300">http://{{go}}/</label>
+    <input disabled type=text size=15 value="search" class="p-2 my-2 rounded-r-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700">
+    <span class="flex m-2 items-center dark:text-gray-300">&rarr;</span>
   </div>
-  <input disabled type=text size=30 value="https://www.google.com/" class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300">
-  <button disabled type=submit class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600">Create</button>
+  <input disabled type=text size=30 value="https://www.google.com/" class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700">
+  <button disabled type=submit class="py-2 px-4 my-2 rounded-md bg-blue-500 dark:bg-blue-600 border-blue-500 dark:border-blue-700 text-white hover:bg-blue-600 dark:hover:bg-blue-700 hover:border-blue-600 dark:hover:border-blue-800">Create</button>
 </div>
 
-<h2>Resolving links</h2>
+<h2 class="dark:text-white">Resolving links</h2>
 
-<p>
+<p class="dark:text-gray-200">
 When logged in to your Tailscale network, {{go}} links can be entered directly into any browser or command line utility such as curl.
 You do not need any additional browser extensions.
 
-<p>
+<p class="dark:text-gray-200">
 Any additional path provided after the short name will be added to the end of the destination link.
 For example, if <strong>{{go}}/who</strong> goes to your company directory at <strong>http://directory/</strong>,
 then <strong>{{go}}/who/amelie</strong> will go to <strong>http://directory/amelie</strong>.
 
-<p>
-<a href="#advanced">Advanced destination links</a> allow you to further customize this behavior.
+<p class="dark:text-gray-200">
+<a href="#advanced" class="text-blue-600 dark:text-blue-400 hover:underline">Advanced destination links</a> allow you to further customize this behavior.
 
-<h2 id="advanced">Advanced destination links</h2>
+<h2 id="advanced" class="dark:text-white">Advanced destination links</h2>
 
-<p>
-To have more control over how {{go}} links are resolved, destination links can use <a href="https://pkg.go.dev/text/template">Go template syntax</a>.
+<p class="dark:text-gray-200">
+To have more control over how {{go}} links are resolved, destination links can use <a href="https://pkg.go.dev/text/template" class="text-blue-600 dark:text-blue-400 hover:underline">Go template syntax</a>.
 Templates are provided a data structure with the following fields:
 
 <ul>

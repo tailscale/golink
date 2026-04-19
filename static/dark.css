@@ -1,0 +1,61 @@
+@media (prefers-color-scheme: dark) {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: rgba(31, 30, 30);   /* gray-900 */
+    color: rgba(238, 235, 234);           /* gray-200 */
+  }
+
+  /* Header / footer backgrounds */
+  .bg-gray-100 {
+    background-color: rgba(46, 45, 45);   /* gray-700 */
+  }
+
+  /* Borders */
+  .border-gray-200 {
+    border-color: rgba(68, 67, 66);       /* gray-600 */
+  }
+  .border-gray-300 {
+    border-color: rgba(68, 67, 66);       /* gray-600 */
+  }
+  .border-orange-50 {
+    border-color: rgba(126, 30, 35);      /* orange-600 */
+  }
+
+  /* Text */
+  .text-gray-700 {
+    color: rgba(218, 214, 213);           /* gray-300 */
+  }
+  .text-gray-500 {
+    color: rgba(175, 172, 171);           /* gray-400 */
+  }
+
+  /* Info / warning banners */
+  .bg-orange-0 {
+    background-color: rgba(66, 14, 17);   /* orange-900 */
+  }
+
+  /* Form inputs */
+  input:not([type=submit]):not([type=button]):not([type=reset]):not([type=checkbox]):not([type=radio]),
+  select,
+  textarea {
+    background-color: rgba(46, 45, 45);   /* gray-700 */
+    color: rgba(238, 235, 234);           /* gray-200 */
+    border-color: rgba(68, 67, 66);       /* gray-600 */
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: rgba(112, 110, 109);           /* gray-500 */
+  }
+
+  /* Links */
+  a {
+    color: rgba(173, 199, 252);           /* blue-100 */
+  }
+  a:hover {
+    color: rgba(206, 222, 253);           /* blue-50 */
+  }
+}

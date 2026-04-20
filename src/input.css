@@ -1,0 +1,105 @@
+@import "tailwindcss";
+@import "@catppuccin/tailwindcss/mocha.css";
+
+@source "../tmpl/*.html";
+
+@plugin "@tailwindcss/forms";
+@plugin "@tailwindcss/typography";
+
+@layer base {
+  /* Input, textarea, select dark mode fixes */
+  @media (prefers-color-scheme: dark) {
+    input:not([type=submit]):not([type=button]):not([type=reset]):not([type=checkbox]):not([type=radio]):not([disabled]),
+    textarea:not([disabled]),
+    select:not([disabled]) {
+      background-color: var(--catppuccin-color-surface0);
+      color: var(--catppuccin-color-text);
+      border-color: var(--catppuccin-color-surface2);
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: var(--catppuccin-color-overlay1);
+    }
+  }
+}
+
+/* Prose dark mode overrides — outside @layer so they outrank typography utilities */
+@media (prefers-color-scheme: dark) {
+  .prose {
+    color: var(--catppuccin-color-text);
+  }
+
+  .prose p,
+  .prose li,
+  .prose dd,
+  .prose dt,
+  .prose blockquote {
+    color: var(--catppuccin-color-text);
+  }
+
+  .prose h1,
+  .prose h2,
+  .prose h3,
+  .prose h4,
+  .prose h5,
+  .prose h6,
+  .prose strong {
+    color: var(--catppuccin-color-text);
+  }
+
+  .prose a {
+    color: var(--catppuccin-color-blue);
+  }
+
+  .prose a:hover {
+    color: var(--catppuccin-color-sky);
+  }
+
+  .prose code {
+    background-color: var(--catppuccin-color-surface0);
+    color: var(--catppuccin-color-peach);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .prose pre {
+    background-color: var(--catppuccin-color-mantle);
+    color: var(--catppuccin-color-text);
+  }
+
+  .prose pre code {
+    background-color: transparent;
+    color: var(--catppuccin-color-text);
+    padding: 0;
+    border-radius: 0;
+  }
+
+  .prose table {
+    border-color: var(--catppuccin-color-surface2);
+  }
+
+  .prose thead th {
+    background-color: var(--catppuccin-color-surface1);
+    color: var(--catppuccin-color-text);
+    border-color: var(--catppuccin-color-surface2);
+  }
+
+  .prose tbody td {
+    border-color: var(--catppuccin-color-surface2);
+    color: var(--catppuccin-color-text);
+  }
+
+  .prose hr {
+    border-color: var(--catppuccin-color-surface2);
+  }
+
+  .prose blockquote {
+    border-left-color: var(--catppuccin-color-surface2);
+    color: var(--catppuccin-color-overlay2);
+  }
+
+  .prose em {
+    color: var(--catppuccin-color-text);
+  }
+}

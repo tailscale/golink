@@ -1,7 +1,7 @@
 {{ define "main" }}
     <h2 class="text-xl font-bold pt-6 pb-2">Results ({{ len . }} total)</h2>
     <table class="table-auto w-full max-w-screen-lg">
-      <thead class="border-b border-gray-200 uppercase text-xs text-gray-500 text-left">
+      <thead class="border-b border-ctp-surface2 uppercase text-xs text-ctp-overlay2 text-left">
         <tr class="flex">
           <th class="flex-1 p-2">Link</th>
           <th class="hidden md:block w-60 truncate p-2">Owner</th>
@@ -10,17 +10,17 @@
       </thead>
       <tbody>
       {{ range . }}
-        <tr class="flex hover:bg-gray-100 group border-b border-gray-200">
+        <tr class="flex hover:bg-ctp-surface0 group border-b border-ctp-surface2">
           <td class="flex-1 p-2">
             <div class="flex">
-              <a class="flex-1 hover:text-blue-500 hover:underline" href="/{{ .Short }}">{{go}}/{{ .Short }}</a>
+              <a class="flex-1 hover:text-ctp-sky hover:underline" href="/{{ .Short }}">{{go}}/{{ .Short }}</a>
               <a class="flex items-center px-2 invisible group-hover:visible" title="Link Details" href="/.detail/{{ .Short }}">
-                <svg class="hover:fill-blue-500" xmlns="http://www.w3.org/2000/svg" height="1.3em" viewBox="0 0 24 24" width="1.3em" fill="currentColor" stroke-width="2"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+                <svg class="hover:fill-ctp-blue" xmlns="http://www.w3.org/2000/svg" height="1.3em" viewBox="0 0 24 24" width="1.3em" fill="currentColor" stroke-width="2"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
               </a>
             </div>
-            <p class="text-sm leading-normal text-gray-500 group-hover:text-gray-700 max-w-[75vw] md:max-w-[40vw] truncate">{{ .Long }}</p>
-            <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Owner</span> {{ .Owner }}</p>
-            <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Last Edited</span> {{ .LastEdit.Format "Jan 2, 2006" }}</p>
+            <p class="text-sm leading-normal text-ctp-overlay2 group-hover:text-ctp-subtext0 max-w-[75vw] md:max-w-[40vw] truncate">{{ .Long }}</p>
+            <p class="md:hidden text-sm leading-normal text-ctp-subtext0"><span class="text-ctp-overlay2 inline-block w-20">Owner</span> {{ .Owner }}</p>
+            <p class="md:hidden text-sm leading-normal text-ctp-subtext0"><span class="text-ctp-overlay2 inline-block w-20">Last Edited</span> {{ .LastEdit.Format "Jan 2, 2006" }}</p>
           </td>
           <td class="hidden md:block w-60 truncate p-2">{{ .Owner }}</td>
           <td class="hidden md:block w-32 p-2">{{ .LastEdit.Format "Jan 2, 2006" }}</td>
@@ -29,7 +29,7 @@
       </tbody>
       <tfoot>
         <tr>
-          <td class="text-sm text-end text-gray-500 py-2"><a class="hover:underline hover:text-blue-500" href="/.export">Download all links in JSON Lines format.</a></td>
+          <td class="text-sm text-end text-ctp-overlay2 py-2"><a class="hover:underline hover:text-ctp-sky" href="/.export">Download all links in JSON Lines format.</a></td>
         </tr>
       </tfoot>
     </table>

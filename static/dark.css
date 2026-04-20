@@ -58,4 +58,41 @@
   a:hover {
     color: rgba(206, 222, 253);           /* blue-50 */
   }
+
+  /* Link text classes */
+  .text-blue-600 {
+    color: rgba(173, 199, 252);           /* blue-100 */
+  }
+  .hover\:text-blue-500:hover {
+    color: rgba(173, 199, 252);           /* blue-100 */
+  }
+  .hover\:bg-gray-100:hover {
+    background-color: rgba(58, 57, 57);   /* gray-600 */
+  }
+  .group:hover .group-hover\:text-gray-700 {
+    color: rgba(218, 214, 213);           /* gray-300 */
+  }
+  .disabled\:bg-gray-100:disabled {
+    background-color: rgba(46, 45, 45);   /* gray-700 */
+  }
+
+  /* Prose content */
+  .prose {
+    --tw-prose-body: var(--tw-prose-invert-body);
+    --tw-prose-headings: var(--tw-prose-invert-headings);
+    --tw-prose-lead: var(--tw-prose-invert-lead);
+    --tw-prose-links: var(--tw-prose-invert-links);
+    --tw-prose-bold: var(--tw-prose-invert-bold);
+    --tw-prose-counters: var(--tw-prose-invert-counters);
+    --tw-prose-bullets: var(--tw-prose-invert-bullets);
+    --tw-prose-hr: var(--tw-prose-invert-hr);
+    --tw-prose-quotes: var(--tw-prose-invert-quotes);
+    --tw-prose-quote-borders: var(--tw-prose-invert-quote-borders);
+    --tw-prose-captions: var(--tw-prose-invert-captions);
+    --tw-prose-code: var(--tw-prose-invert-code);
+    --tw-prose-pre-code: var(--tw-prose-invert-pre-code);
+    --tw-prose-pre-bg: var(--tw-prose-invert-pre-bg);
+    --tw-prose-th-borders: var(--tw-prose-invert-th-borders);
+    --tw-prose-td-borders: var(--tw-prose-invert-td-borders);
+  }
 }

@@ -1,6 +1,6 @@
 # golink
 
-[![status: experimental](https://img.shields.io/badge/status-experimental-blue)](https://tailscale.com/kb/1167/release-stages/#experimental)
+### Forked from [tailscale/golink](https://github.com/tailscale/golink) to modify the frontend UI and theme
 
 golink is a private shortlink service for your [tailnet].
 It lets you create short, memorable links for the websites you and your team use most.
@@ -11,6 +11,7 @@ you might be thinking of [golinks.io](https://golinks.io) or [trot.to](http://tr
 [tailnet]: https://tailscale.com/kb/1136/tailnet/
 
 ![Screenshot of golink home screen](screenshot.png)
+
 
 ## Theme
 

@@ -10,21 +10,21 @@ you might be thinking of [golinks.io](https://golinks.io) or [trot.to](http://tr
 
 [tailnet]: https://tailscale.com/kb/1136/tailnet/
 
-![Screenshot of golink home screen](screenshot.png)
-
+### Screenshot of home page
+<img width="1317" height="827" alt="Screenshot 2026-04-20 at 4 46 54 pm" src="https://github.com/user-attachments/assets/568d9aa0-ec0d-4700-a3b6-1994e4e87807" />
 
 ## Theme
 
-golink uses the [Catppuccin](https://github.com/catppuccin/catppuccin) color palette. Two flavors are active by default:
+This uses the [Catppuccin](https://github.com/catppuccin/catppuccin) color palette. Two flavours are active by default:
 
-| Mode | Flavor | Description |
+| Mode | Flavour | Description |
 |------|--------|-------------|
 | Light | [Latte](https://github.com/catppuccin/catppuccin#-the-palette) | Warm, light background with soft contrast |
-| Dark | [Mocha](https://github.com/catppuccin/catppuccin#-the-palette) | Deep dark background, the most popular dark flavor |
+| Dark | [Mocha](https://github.com/catppuccin/catppuccin#-the-palette) | Deep dark background, the most popular dark flavour |
 
 Dark mode activates automatically based on your OS/browser `prefers-color-scheme` setting.
 
-The other two flavors — **Frappe** and **Macchiato** — are bundled but not wired up by default. You can force a flavor on any element by adding its name as a class (e.g. `class="frappe"`).
+The other two flavours — **Frappe** and **Macchiato** — are bundled but not wired up by default. You can force a flavour on any element by adding its name as a class (e.g. `class="frappe"`).
 
 To rebuild the CSS after editing `src/input.css`:
 

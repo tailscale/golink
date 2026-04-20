@@ -12,6 +12,23 @@ you might be thinking of [golinks.io](https://golinks.io) or [trot.to](http://tr
 
 ![Screenshot of golink home screen](screenshot.png)
 
+## Theme
+
+golink uses the [Catppuccin](https://github.com/catppuccin/catppuccin) color palette. Two flavors are active by default:
+
+| Mode | Flavor | Description |
+|------|--------|-------------|
+| Light | [Latte](https://github.com/catppuccin/catppuccin#-the-palette) | Warm, light background with soft contrast |
+| Dark | [Mocha](https://github.com/catppuccin/catppuccin#-the-palette) | Deep dark background, the most popular dark flavor |
+
+Dark mode activates automatically based on your OS/browser `prefers-color-scheme` setting.
+
+The other two flavors — **Frappe** and **Macchiato** — are bundled but not wired up by default. You can force a flavor on any element by adding its name as a class (e.g. `class="frappe"`).
+
+To rebuild the CSS after editing `src/input.css`:
+
+    npm run build:css
+
 ## Building and running
 
 To build from source and run in dev mode:

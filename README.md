@@ -15,7 +15,7 @@ you might be thinking of [golinks.io](https://golinks.io) or [trot.to](http://tr
 
 ## Theme
 
-This uses the [Catppuccin](https://github.com/catppuccin/catppuccin) color palette. Two flavours are active by default:
+This uses the [Catppuccin](https://github.com/catppuccin/catppuccin) colour palette. Two flavours are active by default:
 
 | Mode | Flavour | Description |
 |------|--------|-------------|

@@ -3,6 +3,7 @@ module github.com/tailscale/golink
 go 1.26.1
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/go-cmp v0.7.0
 	github.com/prometheus/client_golang v1.23.2
 	golang.org/x/net v0.48.0

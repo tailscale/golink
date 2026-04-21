@@ -839,14 +839,20 @@ type user struct {
 	isAdmin bool
 }
 
-// currentUser returns the Tailscale user associated with the request.
-// In most cases, this will be the user that owns the device that made the request.
-// For tagged devices, the value "tagged-devices" is returned.
-// If the user can't be determined (such as requests coming through a subnet router),
-// an error is returned unless the -allow-unknown-users flag is set.
+// currentUser returns the user associated with the request.
+//
+// When -iap-audience is set, identity comes from the Google IAP JWT
+// assertion on the request (see iap.go). Otherwise, it comes from Tailscale's
+// WhoIs of the peer address. For tagged Tailscale devices, the login
+// "tagged-devices" is returned. If the user can't be determined (e.g. a
+// request through a subnet router, or a missing/invalid IAP assertion), an
+// error is returned unless -allow-unknown-users is set.
 var currentUser = func(r *http.Request) (user, error) {
 	if devMode() {
 		return user{login: "foo@example.com"}, nil
+	}
+	if iapEnabled() {
+		return iapCurrentUser(r)
 	}
 	whois, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
 	if err != nil {
@@ -866,7 +872,11 @@ var currentUser = func(r *http.Request) (user, error) {
 	return user{login: login}, nil
 }
 
-// userExists returns whether a user exists with the specified login in the current tailnet.
+// userExists returns whether a user exists with the specified login.
+//
+// When -iap-audience is set, "exists" means the email is in the configured
+// -workspace-domain (or, if no domain is set, any email is accepted).
+// Otherwise, existence is checked against the current tailnet's user list.
 func userExists(ctx context.Context, login string) (bool, error) {
 	const userTaggedDevices = "tagged-devices" // owner of tagged devices
 
@@ -877,6 +887,12 @@ func userExists(ctx context.Context, login string) (bool, error) {
 	if devMode() {
 		// in dev mode, just assume the user exists
 		return true, nil
+	}
+	if iapEnabled() {
+		if *workspaceDomain == "" {
+			return true, nil
+		}
+		return strings.HasSuffix(strings.ToLower(login), "@"+strings.ToLower(*workspaceDomain)), nil
 	}
 	st, err := localClient.Status(ctx)
 	if err != nil {

@@ -141,6 +141,44 @@ func (s *SQLiteDB) Save(link *Link) error {
 	return nil
 }
 
+// SaveAll saves multiple Links in a single transaction. Existing links with
+// the same ID are not overwritten. It returns the number of rows that were
+// newly inserted.
+func (s *SQLiteDB) SaveAll(links []*Link) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.BeginTx(context.TODO(), nil)
+	if err != nil {
+		return 0, err
+	}
+	stmt, err := tx.Prepare("INSERT OR IGNORE INTO Links (ID, Short, Long, Created, LastEdit, Owner) VALUES (?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	defer stmt.Close()
+
+	var inserted int
+	for _, link := range links {
+		result, err := stmt.Exec(linkID(link.Short), link.Short, link.Long, link.Created.Unix(), link.LastEdit.Unix(), link.Owner)
+		if err != nil {
+			tx.Rollback()
+			return inserted, err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			tx.Rollback()
+			return inserted, err
+		}
+		inserted += int(rows)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return inserted, nil
+}
+
 // Delete removes a Link using its short name.
 func (s *SQLiteDB) Delete(short string) error {
 	s.mu.Lock()

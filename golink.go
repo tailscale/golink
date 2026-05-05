@@ -34,6 +34,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/xsrftoken"
 	"tailscale.com/client/local"
+	"tailscale.com/client/tailscale/apitype"
+	"tailscale.com/envknob"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
@@ -69,6 +71,7 @@ var (
 	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
 	readonly          = flag.Bool("readonly", false, "start golink server in read-only mode")
 	advertiseTags     = flag.String("advertise-tags", os.Getenv("TS_ADVERTISE_TAGS"), "comma-separated list of ACL tags to advertise (e.g. tag:golink)")
+	serviceName       = flag.String("register-as-service", envknob.String("TS_SERVICE_NAME"), "register as a Tailscale Service (e.g., svc:golink); requires tagged node")
 )
 
 var stats struct {
@@ -246,6 +249,31 @@ out:
 	fqdn := strings.TrimSuffix(status.Self.DNSName, ".")
 
 	httpHandler := serveHandler()
+
+	// Service registration mode: use ListenService instead of standard listeners
+	if *serviceName != "" {
+		if !strings.HasPrefix(*serviceName, "svc:") {
+			return fmt.Errorf("service name must start with 'svc:' prefix, got: %q", *serviceName)
+		}
+
+		log.Printf("Registering as Tailscale Service: %s", *serviceName)
+		serviceListener, err := srv.ListenService(*serviceName, tsnet.ServiceModeHTTP{
+			HTTPS: true,
+			Port:  443,
+		})
+		if err != nil {
+			if errors.Is(err, tsnet.ErrUntaggedServiceHost) {
+				return fmt.Errorf("service registration requires a tagged node; add a tag like 'tag:golink' to this node in the Tailscale admin console")
+			}
+			return fmt.Errorf("failed to register service: %w", err)
+		}
+
+		httpsHandler := HSTS(httpHandler)
+		log.Printf("Serving https://%s/ as service %s ...", fqdn, *serviceName)
+		return http.Serve(serviceListener, httpsHandler)
+	}
+
+	// Standard mode: use regular listeners
 	if enableTLS {
 		httpsHandler := HSTS(httpHandler)
 		httpHandler = redirectHandler(fqdn)
@@ -844,10 +872,27 @@ type user struct {
 // For tagged devices, the value "tagged-devices" is returned.
 // If the user can't be determined (such as requests coming through a subnet router),
 // an error is returned unless the -allow-unknown-users flag is set.
+//
+// When running as a Tailscale Service, authentication is handled via HTTP headers
+// automatically injected by tsnet's internal proxy (Tailscale-User-Login, etc.).
+// For regular mode, authentication uses WhoIs with the connection's RemoteAddr.
 var currentUser = func(r *http.Request) (user, error) {
 	if devMode() {
 		return user{login: "foo@example.com"}, nil
 	}
+
+	// When running as a Tailscale Service, identity headers are automatically injected
+	// by tsnet's internal proxy. Restrict this authentication check to cases
+	// when we are running in service mode, and the immediate client connection is
+	// on loopback.
+	if trustIdentityHeaders(r) {
+		headerUser := extractUserFromHeaders(r)
+		if headerUser.login != "" {
+			return headerUser, nil
+		}
+	}
+
+	// Regular mode: use WhoIs with RemoteAddr
 	whois, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
 	if err != nil {
 		if *allowUnknownUsers {
@@ -864,6 +909,63 @@ var currentUser = func(r *http.Request) (user, error) {
 		}
 	}
 	return user{login: login}, nil
+}
+
+// trustIdentityHeaders returns whether we should trust identity headers injected by tsnet's internal proxy.
+var trustIdentityHeaders = func(r *http.Request) bool {
+	remoteHost := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(remoteHost); err == nil {
+		remoteHost = host
+	}
+	remoteIP := net.ParseIP(remoteHost)
+
+	return *serviceName != "" && remoteIP != nil && remoteIP.IsLoopback()
+}
+
+// extractUserFromHeaders extracts the user from HTTP headers injected by tsnet's internal proxy.
+var extractUserFromHeaders = func(r *http.Request) user {
+	if tsLogin := r.Header.Get("Tailscale-User-Login"); tsLogin != "" {
+		// Look for a peer from x-forwarded-for header. We'll use that for the
+		// whois/capmap lookup first.
+		xff := r.Header.Get("X-Forwarded-For")
+		if xff != "" {
+			// serve.go sets this to a single address, so we can just
+			// trim whitespace and use it.
+			ip := strings.TrimSpace(xff)
+
+			// only accept well-formed IP addresses
+			if net.ParseIP(ip) == nil {
+				log.Printf("invalid IP in X-Forwarded-For header: %q", ip)
+				return user{login: tsLogin}
+			}
+
+			whois, err := whoisFunc(r.Context(), ip)
+
+			if err != nil {
+				log.Printf("WhoIs lookup for IP %q: %v", ip, err)
+				return user{login: tsLogin}
+			}
+
+			caps, _ := tailcfg.UnmarshalCapJSON[capabilities](whois.CapMap, peerCapName)
+
+			for _, cap := range caps {
+				if cap.Admin {
+					return user{login: tsLogin, isAdmin: true}
+				}
+			}
+
+		}
+
+		// If we can't determine admin status, just return the user without admin privileges
+		// This allows the service to continue functioning even if the lookup fails
+		return user{login: tsLogin}
+	}
+	return user{}
+}
+
+// whoisFunc is a variable so it can be overridden in tests. By default, it calls localClient.WhoIs.
+var whoisFunc = func(ctx context.Context, ip string) (*apitype.WhoIsResponse, error) {
+	return localClient.WhoIs(ctx, ip)
 }
 
 // userExists returns whether a user exists with the specified login in the current tailnet.

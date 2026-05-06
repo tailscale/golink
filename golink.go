@@ -344,6 +344,7 @@ type homeData struct {
 	XSRF     string
 	ReadOnly bool
 	User     string
+	Period   string
 }
 
 // deleteData is the data used by deleteTmpl.
@@ -535,14 +536,39 @@ func serveHandler() http.Handler {
 func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	var clicks []visitData
 
-	stats.mu.Lock()
-	for short, numClicks := range stats.clicks {
-		clicks = append(clicks, visitData{
-			Short:     short,
-			NumClicks: numClicks,
-		})
+	period := r.URL.Query().Get("period")
+	switch period {
+	case "7d", "30d":
+		var days int
+		if period == "7d" {
+			days = 7
+		} else {
+			days = 30
+		}
+		since := db.Now().AddDate(0, 0, -days)
+
+		clickStats, err := db.LoadStatsSince(since)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for s, numClicks := range clickStats {
+			clicks = append(clicks, visitData{
+				Short:     s,
+				NumClicks: numClicks,
+			})
+		}
+	default:
+		period = ""
+		stats.mu.Lock()
+		for short, numClicks := range stats.clicks {
+			clicks = append(clicks, visitData{
+				Short:     short,
+				NumClicks: numClicks,
+			})
+		}
+		stats.mu.Unlock()
 	}
-	stats.mu.Unlock()
 
 	sort.Slice(clicks, func(i, j int) bool {
 		if clicks[i].NumClicks != clicks[j].NumClicks {
@@ -580,6 +606,7 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
 		ReadOnly: *readonly,
 		User:     cu.login,
+		Period:   period,
 	})
 }
 

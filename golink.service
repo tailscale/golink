@@ -1,0 +1,64 @@
+# ABOUTME: Systemd service unit file for running golink as a native service on Ubuntu.
+# ABOUTME: Includes security hardening and setup instructions in comments below.
+#
+# ============================================================================
+# Setup Instructions (Ubuntu)
+# ============================================================================
+#
+# 1. Install the binary (pick one):
+#      go install github.com/tailscale/golink/cmd/golink@latest
+#      sudo cp $(go env GOPATH)/bin/golink /usr/local/bin/golink
+#
+#    Or build from source:
+#      go build -o golink ./cmd/golink
+#      sudo cp golink /usr/local/bin/golink
+#
+# 2. Create a dedicated system user:
+#      sudo useradd --system --no-create-home --shell /usr/sbin/nologin golink
+#
+# 3. Create data, tsnet state, and config directories:
+#      sudo mkdir -p /var/lib/golink/tsnet
+#      sudo chown -R golink:golink /var/lib/golink
+#      sudo mkdir -p /etc/golink
+#
+# 4. Create the auth key file:
+#      echo 'TS_AUTHKEY=tskey-auth-...' | sudo tee /etc/golink/ts-authkey
+#      sudo chmod 600 /etc/golink/ts-authkey
+#
+# 5. Install and enable the service:
+#      sudo cp golink.service /etc/systemd/system/
+#      sudo systemctl daemon-reload
+#      sudo systemctl enable --now golink
+#
+# 6. Check status:
+#      sudo systemctl status golink
+#      sudo journalctl -u golink -f
+#
+# ============================================================================
+
+[Unit]
+Description=golink - private shortlink service for Tailscale networks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=golink
+Group=golink
+
+WorkingDirectory=/var/lib/golink
+EnvironmentFile=/etc/golink/ts-authkey
+
+ExecStart=/usr/local/bin/golink --sqlitedb /var/lib/golink/golink.db --config-dir /var/lib/golink/tsnet --verbose
+
+Restart=always
+RestartSec=15
+
+# Security hardening
+ProtectSystem=strict
+ReadWritePaths=/var/lib/golink
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

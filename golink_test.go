@@ -782,19 +782,30 @@ func TestServeSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stats.clicks = nil
+	stats.dirty = nil
 	links := []*Link{
-		{Short: "alpha", Long: "http://alpha/", Owner: "foo@example.com"},
-		{Short: "beta", Long: "http://beta/", Owner: "foo@example.com"},
-		{Short: "gamma", Long: "http://gamma/", Owner: "bar@example.com"},
-		{Short: "delta", Long: "http://delta/", Owner: "FOO@example.com"},
+		{Short: "alpha", Long: "http://alpha/", Owner: "foo@example.com", LastEdit: time.Unix(10, 0).UTC()},
+		{Short: "beta", Long: "http://docs.internal/beta-dashboard", Owner: "foo@example.com", LastEdit: time.Unix(20, 0).UTC()},
+		{Short: "gamma", Long: "http://gamma/", Owner: "bar@example.com", LastEdit: time.Unix(30, 0).UTC()},
+		{Short: "delta", Long: "http://delta/", Owner: "FOO@example.com", LastEdit: time.Unix(40, 0).UTC()},
+		{Short: "deploy-runbook", Long: "https://wiki.example.com/deployment-runbook", Owner: "ops@example.com", LastEdit: time.Unix(50, 0).UTC()},
+		{Short: "dk", Long: "https://docs.example.com/dev-kit", Owner: "dev@example.com", LastEdit: time.Unix(60, 0).UTC()},
 	}
 	for _, link := range links {
 		if err := db.Save(link); err != nil {
 			t.Error(err)
 		}
 	}
+	stats.clicks = ClickStats{
+		"beta":           12,
+		"alpha":          5,
+		"gamma":          1,
+		"dk":             7,
+		"deploy-runbook": 3,
+	}
 
-	tests := []struct {
+	htmlTests := []struct {
 		name            string
 		owner           string
 		wantStatus      int
@@ -823,7 +834,7 @@ func TestServeSearch(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range htmlTests {
 		t.Run(tt.name, func(t *testing.T) {
 			testURL := "/.search?q=owner:" + url.QueryEscape(tt.owner)
 			r := httptest.NewRequest("GET", testURL, nil)
@@ -846,6 +857,109 @@ func TestServeSearch(t *testing.T) {
 				}
 			}
 		})
+	}
+
+	t.Run("general search supports json", func(t *testing.T) {
+		r := httptest.NewRequest("GET", "/.search?q=deploy&format=json", nil)
+		w := httptest.NewRecorder()
+		serveHandler().ServeHTTP(w, r)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("serveSearch(json) = %d; want %d", w.Code, http.StatusOK)
+		}
+		if got := w.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+			t.Fatalf("Content-Type = %q; want application/json", got)
+		}
+
+		var resp searchResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal json response: %v", err)
+		}
+		if resp.Mode != "search" {
+			t.Fatalf("Mode = %q; want search", resp.Mode)
+		}
+		if len(resp.Results) == 0 || resp.Results[0].Short != "deploy-runbook" {
+			t.Fatalf("unexpected results: %+v", resp.Results)
+		}
+	})
+
+	t.Run("general search ranks exact short match before popular partial match", func(t *testing.T) {
+		r := httptest.NewRequest("GET", "/.search?q=alpha&format=json", nil)
+		w := httptest.NewRecorder()
+		serveHandler().ServeHTTP(w, r)
+
+		var resp searchResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal json response: %v", err)
+		}
+		if len(resp.Results) == 0 {
+			t.Fatal("expected results")
+		}
+		if resp.Results[0].Short != "alpha" {
+			t.Fatalf("first result = %q; want alpha", resp.Results[0].Short)
+		}
+	})
+
+	t.Run("general search fuzzy matches compact short names", func(t *testing.T) {
+		r := httptest.NewRequest("GET", "/.search?q=dr&format=json", nil)
+		w := httptest.NewRecorder()
+		serveHandler().ServeHTTP(w, r)
+
+		var resp searchResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal json response: %v", err)
+		}
+		if len(resp.Results) == 0 || resp.Results[0].Short != "deploy-runbook" {
+			t.Fatalf("expected deploy-runbook fuzzy match first, got %+v", resp.Results)
+		}
+	})
+
+	t.Run("empty search returns popular links first", func(t *testing.T) {
+		r := httptest.NewRequest("GET", "/.search?format=json&limit=3", nil)
+		w := httptest.NewRecorder()
+		serveHandler().ServeHTTP(w, r)
+
+		var resp searchResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal json response: %v", err)
+		}
+		got := make([]string, 0, len(resp.Results))
+		for _, result := range resp.Results {
+			got = append(got, result.Short)
+		}
+		want := []string{"beta", "dk", "alpha"}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("popular order mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestServeHomeIncludesCommandPalette(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCurrentUser := currentUser
+	currentUser = func(*http.Request) (user, error) {
+		return user{login: "foo@example.com"}, nil
+	}
+	t.Cleanup(func() {
+		currentUser = oldCurrentUser
+	})
+
+	r := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("serveHome = %d; want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"Search links", "Ctrl/Cmd + K", "command-palette.js", "data-command-palette"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("home page missing %q", want)
+		}
 	}
 }
 

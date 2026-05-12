@@ -1,5 +1,11 @@
 {{ define "main" }}
-    <h2 class="text-xl font-bold pt-6 pb-2">Results ({{ len . }} total)</h2>
+    <h2 class="text-xl font-bold pt-6 pb-2">{{ .Heading }}</h2>
+    {{ if .Query }}
+      <p class="pb-2 text-sm text-gray-500">Showing results for <span class="font-semibold text-gray-700">{{ .Query }}</span>.</p>
+    {{ end }}
+    {{ if not .Results }}
+      <p class="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-gray-700">No matching links found.</p>
+    {{ else }}
     <table class="table-auto w-full max-w-screen-lg">
       <thead class="border-b border-gray-200 uppercase text-xs text-gray-500 text-left">
         <tr class="flex">
@@ -9,7 +15,7 @@
         </tr>
       </thead>
       <tbody>
-      {{ range . }}
+      {{ range .Results }}
         <tr class="flex hover:bg-gray-100 group border-b border-gray-200">
           <td class="flex-1 p-2">
             <div class="flex">
@@ -27,10 +33,13 @@
         </tr>
       {{ end }}
       </tbody>
+      {{ if .ShowExport }}
       <tfoot>
         <tr>
           <td class="text-sm text-end text-gray-500 py-2"><a class="hover:underline hover:text-blue-500" href="/.export">Download all links in JSON Lines format.</a></td>
         </tr>
       </tfoot>
+      {{ end }}
     </table>
+    {{ end }}
 {{ end }}

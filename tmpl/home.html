@@ -1,4 +1,15 @@
 {{ define "main" }}
+    <section class="command-palette-surface">
+      <div>
+        <h2 class="text-xl font-bold pb-2">Search links fast</h2>
+        <p class="text-sm text-gray-500">Open the command palette to jump to popular links or search by short name, destination, and owner.</p>
+      </div>
+      <button type="button" class="command-palette-trigger" data-command-palette-open aria-haspopup="dialog" aria-controls="command-palette">
+        <span>Search links</span>
+        <span class="command-palette-shortcut" aria-hidden="true">Ctrl/Cmd + K</span>
+      </button>
+    </section>
+
     {{ if .ReadOnly }}
       <p class="rounded-md py-3 px-4 bg-orange-0 border border-orange-50">{{go}} is running in read-only mode. Links can be resolved, but not created or updated.</p>
     {{ else }}
@@ -45,4 +56,35 @@
     </table>
     <p class="my-2 text-sm"><a class="text-blue-600 hover:underline" href="/.search?q=owner:{{.User}}">See my links.</a></p>
     <p class="my-2 text-sm"><a class="text-blue-600 hover:underline" href="/.all">See all links.</a></p>
+{{ end }}
+
+{{ define "scripts" }}
+  <div id="command-palette" class="command-palette hidden" data-command-palette aria-hidden="true">
+    <div class="command-palette-backdrop" data-command-palette-close></div>
+    <div class="command-palette-dialog" role="dialog" aria-modal="true" aria-labelledby="command-palette-title">
+      <div class="command-palette-header">
+        <div>
+          <h2 id="command-palette-title" class="text-xl font-bold">Search links</h2>
+          <p class="text-sm text-gray-500">Search short names, destinations, and owners. Press Enter to open a link.</p>
+        </div>
+        <button type="button" class="command-palette-close" data-command-palette-close aria-label="Close search">Esc</button>
+      </div>
+      <div class="command-palette-input-row">
+        <input
+          id="command-palette-input"
+          type="search"
+          autocomplete="off"
+          placeholder="Search links"
+          class="command-palette-input"
+          data-command-palette-input
+          aria-controls="command-palette-results"
+        >
+      </div>
+      <p class="command-palette-status hidden" data-command-palette-loading>Loading links…</p>
+      <p class="command-palette-status hidden" data-command-palette-empty>No matching links found.</p>
+      <ul id="command-palette-results" class="command-palette-results" data-command-palette-results role="listbox"></ul>
+      <p class="command-palette-footer text-sm text-gray-500">Use ↑/↓ to move, Enter to open, and Esc to close.</p>
+    </div>
+  </div>
+  <script src="/.static/command-palette.js"></script>
 {{ end }}

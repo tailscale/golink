@@ -25,10 +25,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	texttemplate "text/template"
 	"time"
+	"unicode"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -346,6 +348,30 @@ type homeData struct {
 	User     string
 }
 
+type searchResult struct {
+	Short     string    `json:"short"`
+	Long      string    `json:"long"`
+	Owner     string    `json:"owner"`
+	LastEdit  time.Time `json:"lastEdit"`
+	NumClicks int       `json:"numClicks"`
+	Path      string    `json:"path"`
+
+	score int
+}
+
+type searchPageData struct {
+	Heading    string
+	Query      string
+	Results    []searchResult
+	ShowExport bool
+}
+
+type searchResponse struct {
+	Mode    string         `json:"mode"`
+	Query   string         `json:"query,omitempty"`
+	Results []searchResult `json:"results"`
+}
+
 // deleteData is the data used by deleteTmpl.
 type deleteData struct {
 	Short string
@@ -598,7 +624,11 @@ func serveAll(w http.ResponseWriter, _ *http.Request) {
 		return links[i].Short < links[j].Short
 	})
 
-	searchTmpl.Execute(w, links)
+	searchTmpl.Execute(w, searchPageData{
+		Heading:    "All links",
+		Results:    searchResultsFromLinks(links, clickStatsSnapshot()),
+		ShowExport: true,
+	})
 }
 
 func serveHelp(w http.ResponseWriter, _ *http.Request) {
@@ -751,25 +781,265 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 	detailTmpl.Execute(w, data)
 }
 
-// serveSearch handles requests to /.search?q={query}, where {query} can currently only be
-// the owner formated like "owner:<email>".
+// serveSearch handles requests to /.search?q={query}. Queries support both the
+// legacy owner:email lookup and general link search for end users.
 func serveSearch(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("q")
-	owner, found := strings.CutPrefix(query, "owner:")
-	if !found {
-		http.Error(w, `search only supports "owner:<email>"`, http.StatusBadRequest)
-		return
-	}
-	links, err := db.GetLinksByOwner(owner)
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	limit := searchLimit(r, 200)
+	wantsJSON := strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(strings.ToLower(r.Header.Get("Accept")), "application/json")
+
+	data, resp, err := searchDataForQuery(query, clickStatsSnapshot(), limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	sort.Slice(links, func(i, j int) bool {
-		return links[i].Short < links[j].Short
+	if wantsJSON {
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		enc.Encode(resp)
+		return
+	}
+
+	searchTmpl.Execute(w, data)
+}
+
+func searchDataForQuery(query string, clicks ClickStats, limit int) (searchPageData, searchResponse, error) {
+	if owner, found := ownerSearchQuery(query); found {
+		links, err := db.GetLinksByOwner(owner)
+		if err != nil {
+			return searchPageData{}, searchResponse{}, err
+		}
+		sort.Slice(links, func(i, j int) bool {
+			return links[i].Short < links[j].Short
+		})
+		results := searchResultsFromLinks(links, clicks)
+		if limit > 0 && len(results) > limit {
+			results = results[:limit]
+		}
+		return searchPageData{
+				Heading:    fmt.Sprintf("Results (%d total)", len(results)),
+				Query:      query,
+				Results:    results,
+				ShowExport: true,
+			}, searchResponse{
+				Mode:    "owner",
+				Query:   query,
+				Results: results,
+			}, nil
+	}
+
+	results, err := searchLinks(query, clicks, limit)
+	if err != nil {
+		return searchPageData{}, searchResponse{}, err
+	}
+	heading := fmt.Sprintf("Results (%d total)", len(results))
+	if query == "" {
+		heading = fmt.Sprintf("Popular and recent links (%d total)", len(results))
+	}
+	return searchPageData{
+			Heading:    heading,
+			Query:      query,
+			Results:    results,
+			ShowExport: true,
+		}, searchResponse{
+			Mode:    "search",
+			Query:   query,
+			Results: results,
+		}, nil
+}
+
+func clickStatsSnapshot() ClickStats {
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+
+	clicks := make(ClickStats, len(stats.clicks))
+	for short, count := range stats.clicks {
+		clicks[short] = count
+	}
+	return clicks
+}
+
+func searchLimit(r *http.Request, defaultLimit int) int {
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil || limit <= 0 {
+		return defaultLimit
+	}
+	if limit > 200 {
+		return 200
+	}
+	return limit
+}
+
+func ownerSearchQuery(query string) (string, bool) {
+	prefix := "owner:"
+	if len(query) < len(prefix) || !strings.EqualFold(query[:len(prefix)], prefix) {
+		return "", false
+	}
+	return strings.TrimSpace(query[len(prefix):]), true
+}
+
+func searchLinks(query string, clicks ClickStats, limit int) ([]searchResult, error) {
+	links, err := db.LoadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedQuery := normalizeSearchText(query)
+	results := make([]searchResult, 0, len(links))
+	for _, link := range links {
+		score := scoreLinkForSearch(link, normalizedQuery)
+		if normalizedQuery != "" && score == 0 {
+			continue
+		}
+		results = append(results, searchResult{
+			Short:     link.Short,
+			Long:      link.Long,
+			Owner:     link.Owner,
+			LastEdit:  link.LastEdit,
+			NumClicks: clicks[link.Short],
+			Path:      "/" + link.Short,
+			score:     score,
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if normalizedQuery != "" && results[i].score != results[j].score {
+			return results[i].score > results[j].score
+		}
+		if results[i].NumClicks != results[j].NumClicks {
+			return results[i].NumClicks > results[j].NumClicks
+		}
+		if !results[i].LastEdit.Equal(results[j].LastEdit) {
+			return results[i].LastEdit.After(results[j].LastEdit)
+		}
+		return results[i].Short < results[j].Short
 	})
-	searchTmpl.Execute(w, links)
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+func searchResultsFromLinks(links []*Link, clicks ClickStats) []searchResult {
+	results := make([]searchResult, 0, len(links))
+	for _, link := range links {
+		results = append(results, searchResult{
+			Short:     link.Short,
+			Long:      link.Long,
+			Owner:     link.Owner,
+			LastEdit:  link.LastEdit,
+			NumClicks: clicks[link.Short],
+			Path:      "/" + link.Short,
+		})
+	}
+	return results
+}
+
+func scoreLinkForSearch(link *Link, query string) int {
+	if query == "" {
+		return 1
+	}
+
+	short := normalizeSearchText(link.Short)
+	long := normalizeSearchText(link.Long)
+	owner := normalizeSearchText(link.Owner)
+	queryTokens := strings.Fields(query)
+
+	score := scoreSearchField(query, short, true, 1200, 900, 700, 400)
+	score += scoreSearchField(query, long, false, 200, 150, 120, 0)
+	score += scoreSearchField(query, owner, false, 140, 110, 90, 0)
+
+	if len(queryTokens) > 1 {
+		for _, token := range queryTokens {
+			score += scoreSearchField(token, short, true, 120, 90, 70, 40)
+			score += scoreSearchField(token, long, false, 45, 35, 25, 0)
+			score += scoreSearchField(token, owner, false, 35, 25, 20, 0)
+		}
+	}
+
+	return score
+}
+
+func scoreSearchField(query, field string, allowFuzzy bool, exact, prefix, contains, fuzzy int) int {
+	if query == "" || field == "" {
+		return 0
+	}
+	if field == query {
+		return exact
+	}
+	if strings.HasPrefix(field, query) {
+		return prefix
+	}
+	if strings.Contains(field, query) {
+		return contains
+	}
+	compactQuery := compactSearchText(query)
+	compactField := compactSearchText(field)
+	if compactQuery == "" || compactField == "" {
+		return 0
+	}
+	if compactField == compactQuery {
+		return exact
+	}
+	if strings.HasPrefix(compactField, compactQuery) {
+		return prefix
+	}
+	if strings.Contains(compactField, compactQuery) {
+		return contains
+	}
+	if allowFuzzy {
+		return fuzzyScore(compactQuery, compactField, fuzzy)
+	}
+	return 0
+}
+
+func fuzzyScore(query, target string, base int) int {
+	if base == 0 || len(query) < 2 {
+		return 0
+	}
+	queryRunes := []rune(query)
+	targetRunes := []rune(target)
+	q := 0
+	last := -1
+	penalty := 0
+	for i, r := range targetRunes {
+		if q >= len(queryRunes) {
+			break
+		}
+		if r != queryRunes[q] {
+			continue
+		}
+		if last >= 0 {
+			penalty += i - last - 1
+		}
+		last = i
+		q++
+	}
+	if q != len(queryRunes) {
+		return 0
+	}
+	score := base - penalty
+	if score < 1 {
+		return 1
+	}
+	return score
+}
+
+func normalizeSearchText(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(s))), " ")
+}
+
+func compactSearchText(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 type expandEnv struct {

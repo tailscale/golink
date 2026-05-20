@@ -978,8 +978,26 @@ func TestParseStatsPeriod(t *testing.T) {
 			wantOK: true,
 		},
 		{
+			name:   "max duration",
+			period: "8760h",
+			want:   maxStatsPeriod,
+			wantOK: true,
+		},
+		{
+			name:   "too long duration",
+			period: "8761h",
+		},
+		{
+			name:   "too many days",
+			period: "366d",
+		},
+		{
 			name:   "negative",
 			period: "-7d",
+		},
+		{
+			name:   "overflowing days",
+			period: "100000000000000000000d",
 		},
 		{
 			name:   "invalid",

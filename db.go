@@ -84,6 +84,8 @@ func (s *SQLiteDB) LoadAll() ([]*Link, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
 	for rows.Next() {
 		link := new(Link)
 		var created, lastEdit int64
@@ -178,6 +180,8 @@ func (s *SQLiteDB) LoadStats() (ClickStats, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
 	stats := make(map[string]int)
 	for rows.Next() {
 		var id string
@@ -266,6 +270,8 @@ func (s *SQLiteDB) GetLinksByOwner(owner string) ([]*Link, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
 	for rows.Next() {
 		link := new(Link)
 		var created, lastEdit int64

@@ -46,6 +46,7 @@ import (
 
 const (
 	defaultHostname = "go"
+	maxStatsPeriod  = 365 * 24 * time.Hour
 
 	// Used as a placeholder short name for generating the XSRF defense token,
 	// when creating new links.
@@ -608,12 +609,12 @@ func parseStatsPeriod(period string) (time.Duration, bool) {
 	if period == "" {
 		return 0, false
 	}
-	if d, err := time.ParseDuration(period); err == nil && d > 0 {
+	if d, err := time.ParseDuration(period); err == nil && d > 0 && d <= maxStatsPeriod {
 		return d, true
 	}
 	if days, ok := strings.CutSuffix(period, "d"); ok {
 		n, err := strconv.Atoi(days)
-		if err == nil && n > 0 {
+		if err == nil && n > 0 && n <= int(maxStatsPeriod/(24*time.Hour)) {
 			return time.Duration(n) * 24 * time.Hour, true
 		}
 	}

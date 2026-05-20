@@ -154,7 +154,7 @@ func Test_SQLiteDB_LoadStatsSince(t *testing.T) {
 
 	// advance 20 days and save more stats (recent stats)
 	clock.Advance(20 * 24 * time.Hour)
-	if err := db.SaveStats(ClickStats{"a": 2, "b": 7}); err != nil {
+	if err := db.SaveStats(ClickStats{"a": 2, "b": 7, "missing": 11}); err != nil {
 		t.Fatal(err)
 	}
 

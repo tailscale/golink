@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	texttemplate "text/template"
@@ -537,15 +538,8 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	var clicks []visitData
 
 	period := r.URL.Query().Get("period")
-	switch period {
-	case "7d", "30d":
-		var days int
-		if period == "7d" {
-			days = 7
-		} else {
-			days = 30
-		}
-		since := db.Now().AddDate(0, 0, -days)
+	if periodDuration, ok := parseStatsPeriod(period); ok {
+		since := db.Now().Add(-periodDuration)
 
 		clickStats, err := db.LoadStatsSince(since)
 		if err != nil {
@@ -558,7 +552,7 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 				NumClicks: numClicks,
 			})
 		}
-	default:
+	} else {
 		period = ""
 		stats.mu.Lock()
 		for short, numClicks := range stats.clicks {
@@ -608,6 +602,22 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		User:     cu.login,
 		Period:   period,
 	})
+}
+
+func parseStatsPeriod(period string) (time.Duration, bool) {
+	if period == "" {
+		return 0, false
+	}
+	if d, err := time.ParseDuration(period); err == nil && d > 0 {
+		return d, true
+	}
+	if days, ok := strings.CutSuffix(period, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err == nil && n > 0 {
+			return time.Duration(n) * 24 * time.Hour, true
+		}
+	}
+	return 0, false
 }
 
 func serveAll(w http.ResponseWriter, _ *http.Request) {

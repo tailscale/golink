@@ -861,8 +861,12 @@ func TestServeHomePeriodFilter(t *testing.T) {
 	}
 	db.clock = clock
 
-	db.Save(&Link{Short: "old-link", Long: "http://old/"})
-	db.Save(&Link{Short: "new-link", Long: "http://new/"})
+	if err := db.Save(&Link{Short: "old-link", Long: "http://old/"}); err != nil {
+		t.Fatalf("saving old-link: %v", err)
+	}
+	if err := db.Save(&Link{Short: "new-link", Long: "http://new/"}); err != nil {
+		t.Fatalf("saving new-link: %v", err)
+	}
 
 	// save old stats (40 days ago)
 	if err := db.SaveStats(ClickStats{"old-link": 10}); err != nil {
@@ -875,7 +879,9 @@ func TestServeHomePeriodFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	initStats()
+	if err := initStats(); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name            string
@@ -898,11 +904,24 @@ func TestServeHomePeriodFilter(t *testing.T) {
 			wantNotContains: []string{"old-link"},
 		},
 		{
+			name:            "duration shows only recent link",
+			period:          "168h",
+			wantStatus:      http.StatusOK,
+			wantContains:    []string{"new-link"},
+			wantNotContains: []string{"old-link"},
+		},
+		{
 			name:            "30d shows only recent link",
 			period:          "30d",
 			wantStatus:      http.StatusOK,
 			wantContains:    []string{"new-link"},
 			wantNotContains: []string{"old-link"},
+		},
+		{
+			name:         "invalid period falls back to all time",
+			period:       "nope",
+			wantStatus:   http.StatusOK,
+			wantContains: []string{"old-link", "new-link"},
 		},
 	}
 
@@ -930,6 +949,49 @@ func TestServeHomePeriodFilter(t *testing.T) {
 				if strings.Contains(body, s) {
 					t.Errorf("serveHome(?period=%s) body unexpectedly contains %q", tt.period, s)
 				}
+			}
+		})
+	}
+}
+
+func TestParseStatsPeriod(t *testing.T) {
+	tests := []struct {
+		name   string
+		period string
+		want   time.Duration
+		wantOK bool
+	}{
+		{
+			name:   "empty",
+			period: "",
+		},
+		{
+			name:   "days",
+			period: "7d",
+			want:   7 * 24 * time.Hour,
+			wantOK: true,
+		},
+		{
+			name:   "duration",
+			period: "168h",
+			want:   168 * time.Hour,
+			wantOK: true,
+		},
+		{
+			name:   "negative",
+			period: "-7d",
+		},
+		{
+			name:   "invalid",
+			period: "nope",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseStatsPeriod(tt.period)
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("parseStatsPeriod(%q) = %v, %v; want %v, %v", tt.period, got, ok, tt.want, tt.wantOK)
 			}
 		})
 	}

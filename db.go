@@ -84,6 +84,8 @@ func (s *SQLiteDB) LoadAll() ([]*Link, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
 	for rows.Next() {
 		link := new(Link)
 		var created, lastEdit int64
@@ -178,6 +180,8 @@ func (s *SQLiteDB) LoadStats() (ClickStats, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
 	stats := make(map[string]int)
 	for rows.Next() {
 		var id string
@@ -187,6 +191,36 @@ func (s *SQLiteDB) LoadStats() (ClickStats, error) {
 			return nil, err
 		}
 		short := linkmap[id]
+		stats[short] = clicks
+	}
+	return stats, rows.Err()
+}
+
+// LoadStatsSince returns click stats for links since the given time.
+func (s *SQLiteDB) LoadStatsSince(since time.Time) (ClickStats, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`
+		SELECT Links.Short, sum(Stats.Clicks)
+		FROM Stats
+		JOIN Links ON Stats.ID = Links.ID
+		WHERE Stats.Created >= ?
+		GROUP BY Links.ID, Links.Short
+	`, since.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := make(map[string]int)
+	for rows.Next() {
+		var short string
+		var clicks int
+		err := rows.Scan(&short, &clicks)
+		if err != nil {
+			return nil, err
+		}
 		stats[short] = clicks
 	}
 	return stats, rows.Err()
@@ -236,6 +270,8 @@ func (s *SQLiteDB) GetLinksByOwner(owner string) ([]*Link, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
 	for rows.Next() {
 		link := new(Link)
 		var created, lastEdit int64

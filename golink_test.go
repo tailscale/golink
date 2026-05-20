@@ -849,6 +849,172 @@ func TestServeSearch(t *testing.T) {
 	}
 }
 
+func TestServeHomePeriodFilter(t *testing.T) {
+	clock := tstest.NewClock(tstest.ClockOpts{
+		Start: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.clock = clock
+
+	if err := db.Save(&Link{Short: "old-link", Long: "http://old/"}); err != nil {
+		t.Fatalf("saving old-link: %v", err)
+	}
+	if err := db.Save(&Link{Short: "new-link", Long: "http://new/"}); err != nil {
+		t.Fatalf("saving new-link: %v", err)
+	}
+
+	// save old stats (40 days ago)
+	if err := db.SaveStats(ClickStats{"old-link": 10}); err != nil {
+		t.Fatal(err)
+	}
+
+	// advance 40 days and save recent stats
+	clock.Advance(40 * 24 * time.Hour)
+	if err := db.SaveStats(ClickStats{"new-link": 5}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := initStats(); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name            string
+		period          string
+		wantStatus      int
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name:         "all time shows all links",
+			period:       "",
+			wantStatus:   http.StatusOK,
+			wantContains: []string{"old-link", "new-link"},
+		},
+		{
+			name:            "7d shows only recent link",
+			period:          "7d",
+			wantStatus:      http.StatusOK,
+			wantContains:    []string{"new-link"},
+			wantNotContains: []string{"old-link"},
+		},
+		{
+			name:            "duration shows only recent link",
+			period:          "168h",
+			wantStatus:      http.StatusOK,
+			wantContains:    []string{"new-link"},
+			wantNotContains: []string{"old-link"},
+		},
+		{
+			name:            "30d shows only recent link",
+			period:          "30d",
+			wantStatus:      http.StatusOK,
+			wantContains:    []string{"new-link"},
+			wantNotContains: []string{"old-link"},
+		},
+		{
+			name:         "invalid period falls back to all time",
+			period:       "nope",
+			wantStatus:   http.StatusOK,
+			wantContains: []string{"old-link", "new-link"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url := "/"
+			if tt.period != "" {
+				url = "/?period=" + tt.period
+			}
+			r := httptest.NewRequest("GET", url, nil)
+			w := httptest.NewRecorder()
+			serveHandler().ServeHTTP(w, r)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("serveHome(?period=%s) = %d; want %d", tt.period, w.Code, tt.wantStatus)
+			}
+
+			body := w.Body.String()
+			for _, s := range tt.wantContains {
+				if !strings.Contains(body, s) {
+					t.Errorf("serveHome(?period=%s) body missing %q", tt.period, s)
+				}
+			}
+			for _, s := range tt.wantNotContains {
+				if strings.Contains(body, s) {
+					t.Errorf("serveHome(?period=%s) body unexpectedly contains %q", tt.period, s)
+				}
+			}
+		})
+	}
+}
+
+func TestParseStatsPeriod(t *testing.T) {
+	tests := []struct {
+		name   string
+		period string
+		want   time.Duration
+		wantOK bool
+	}{
+		{
+			name:   "empty",
+			period: "",
+		},
+		{
+			name:   "days",
+			period: "7d",
+			want:   7 * 24 * time.Hour,
+			wantOK: true,
+		},
+		{
+			name:   "duration",
+			period: "168h",
+			want:   168 * time.Hour,
+			wantOK: true,
+		},
+		{
+			name:   "max duration",
+			period: "8760h",
+			want:   maxStatsPeriod,
+			wantOK: true,
+		},
+		{
+			name:   "too long duration",
+			period: "8761h",
+		},
+		{
+			name:   "too many days",
+			period: "366d",
+		},
+		{
+			name:   "negative",
+			period: "-7d",
+		},
+		{
+			name:   "overflowing days",
+			period: "100000000000000000000d",
+		},
+		{
+			name:   "invalid",
+			period: "nope",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseStatsPeriod(tt.period)
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("parseStatsPeriod(%q) = %v, %v; want %v, %v", tt.period, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
 func TestParseAdvertiseTags(t *testing.T) {
 	tests := []struct {
 		name    string

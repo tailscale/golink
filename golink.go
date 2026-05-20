@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	texttemplate "text/template"
@@ -45,6 +46,7 @@ import (
 
 const (
 	defaultHostname = "go"
+	maxStatsPeriod  = 365 * 24 * time.Hour
 
 	// Used as a placeholder short name for generating the XSRF defense token,
 	// when creating new links.
@@ -344,6 +346,7 @@ type homeData struct {
 	XSRF     string
 	ReadOnly bool
 	User     string
+	Period   string
 }
 
 // deleteData is the data used by deleteTmpl.
@@ -535,14 +538,32 @@ func serveHandler() http.Handler {
 func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	var clicks []visitData
 
-	stats.mu.Lock()
-	for short, numClicks := range stats.clicks {
-		clicks = append(clicks, visitData{
-			Short:     short,
-			NumClicks: numClicks,
-		})
+	period := r.URL.Query().Get("period")
+	if periodDuration, ok := parseStatsPeriod(period); ok {
+		since := db.Now().Add(-periodDuration)
+
+		clickStats, err := db.LoadStatsSince(since)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for s, numClicks := range clickStats {
+			clicks = append(clicks, visitData{
+				Short:     s,
+				NumClicks: numClicks,
+			})
+		}
+	} else {
+		period = ""
+		stats.mu.Lock()
+		for short, numClicks := range stats.clicks {
+			clicks = append(clicks, visitData{
+				Short:     short,
+				NumClicks: numClicks,
+			})
+		}
+		stats.mu.Unlock()
 	}
-	stats.mu.Unlock()
 
 	sort.Slice(clicks, func(i, j int) bool {
 		if clicks[i].NumClicks != clicks[j].NumClicks {
@@ -580,7 +601,24 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
 		ReadOnly: *readonly,
 		User:     cu.login,
+		Period:   period,
 	})
+}
+
+func parseStatsPeriod(period string) (time.Duration, bool) {
+	if period == "" {
+		return 0, false
+	}
+	if d, err := time.ParseDuration(period); err == nil && d > 0 && d <= maxStatsPeriod {
+		return d, true
+	}
+	if days, ok := strings.CutSuffix(period, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err == nil && n > 0 && n <= int(maxStatsPeriod/(24*time.Hour)) {
+			return time.Duration(n) * 24 * time.Hour, true
+		}
+	}
+	return 0, false
 }
 
 func serveAll(w http.ResponseWriter, _ *http.Request) {

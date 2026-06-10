@@ -1,3 +1,6 @@
+-- +goose Up
+-- Initial golink schema. IF NOT EXISTS keeps this a no-op on databases that
+-- already have these tables, preserving their existing data.
 CREATE TABLE IF NOT EXISTS Links (
 	ID       TEXT    PRIMARY KEY,         -- normalized version of Short (foobar)
 	Short    TEXT    NOT NULL DEFAULT "", -- user-provided Short name (Foo-Bar)
@@ -12,3 +15,7 @@ CREATE TABLE IF NOT EXISTS Stats (
 	Created  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), -- unix seconds
 	Clicks   INTEGER
 );
+
+-- +goose Down
+DROP TABLE IF EXISTS Stats;
+DROP TABLE IF EXISTS Links;

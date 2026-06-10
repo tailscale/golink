@@ -332,8 +332,9 @@ var (
 )
 
 type visitData struct {
-	Short     string
-	NumClicks int
+	Short       string
+	NumClicks   int
+	Description string
 }
 
 // homeData is the data used by homeTmpl.
@@ -535,11 +536,23 @@ func serveHandler() http.Handler {
 func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	var clicks []visitData
 
+	// Look up descriptions so popular links can show them alongside the click
+	// count.
+	descriptions := make(map[string]string)
+	if allLinks, err := db.LoadAll(); err != nil {
+		log.Printf("loading link descriptions for home page: %v", err)
+	} else {
+		for _, l := range allLinks {
+			descriptions[linkID(l.Short)] = l.Description
+		}
+	}
+
 	stats.mu.Lock()
 	for short, numClicks := range stats.clicks {
 		clicks = append(clicks, visitData{
-			Short:     short,
-			NumClicks: numClicks,
+			Short:       short,
+			NumClicks:   numClicks,
+			Description: descriptions[linkID(short)],
 		})
 	}
 	stats.mu.Unlock()
@@ -1136,6 +1149,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 	link.Short = short
 	link.Long = long
+	link.Description = strings.TrimSpace(r.FormValue("description"))
 	link.LastEdit = now
 	link.Owner = owner
 	if err := db.Save(link); err != nil {

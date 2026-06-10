@@ -311,6 +311,20 @@ You can also resolve links locally using a snapshot file:
 
     golink -resolve-from-backup links.json go/link
 
+## Database migrations
+
+The SQLite schema is managed with [goose]. Migrations live in the `migrations`
+directory, are embedded into the binary at build time, and are applied
+automatically on startup, so upgrading golink requires no manual database
+steps. Existing databases created before goose was introduced are picked up
+transparently: the initial migration uses `CREATE TABLE IF NOT EXISTS`, so it is
+a no-op against their existing tables and their data is preserved.
+
+To add a schema change, create a new timestamped/numbered file in `migrations`
+with `-- +goose Up` / `-- +goose Down` sections; it will run on the next start.
+
+[goose]: https://github.com/pressly/goose
+
 ## Firefox configuration
 
 If you're using Firefox, you might want to configure two options to make it easy to load links:

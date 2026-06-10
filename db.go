@@ -6,7 +6,7 @@ package golink
 import (
 	"context"
 	"database/sql"
-	_ "embed"
+	"embed"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,17 +15,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 	"tailscale.com/tstime"
 )
 
 // Link is the structure stored for each go short link.
 type Link struct {
-	Short    string // the "foo" part of http://go/foo
-	Long     string // the target URL or text/template pattern to run
-	Created  time.Time
-	LastEdit time.Time // when the link was last edited
-	Owner    string    // user@domain
+	Short       string // the "foo" part of http://go/foo
+	Long        string // the target URL or text/template pattern to run
+	Description string // optional human-readable description of the link
+	Created     time.Time
+	LastEdit    time.Time // when the link was last edited
+	Owner       string    // user@domain
 }
 
 // ClickStats is the number of clicks a set of links have received in a given
@@ -47,8 +49,8 @@ type SQLiteDB struct {
 	clock tstime.Clock // allow overriding time for tests
 }
 
-//go:embed schema.sql
-var sqlSchema string
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
 // NewSQLiteDB returns a new SQLiteDB that stores links in a SQLite database stored at f.
 func NewSQLiteDB(f string) (*SQLiteDB, error) {
@@ -60,16 +62,51 @@ func NewSQLiteDB(f string) (*SQLiteDB, error) {
 		return nil, err
 	}
 
-	if _, err = db.Exec(sqlSchema); err != nil {
+	if err := migrateDB(db); err != nil {
 		return nil, err
 	}
 
 	return &SQLiteDB{db: db}, nil
 }
 
+// migrateDB applies any pending schema migrations to db. Migrations are embedded
+// from the migrations directory and applied in version order; goose records
+// applied versions in a goose_db_version table, so it is safe to run on every
+// startup.
+func migrateDB(db *sql.DB) error {
+	migrationFiles, err := fs.Sub(migrationsFS, "migrations")
+	if err != nil {
+		return err
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, migrationFiles)
+	if err != nil {
+		return err
+	}
+	_, err = provider.Up(context.Background())
+	return err
+}
+
 // Now returns the current time.
 func (s *SQLiteDB) Now() time.Time {
 	return tstime.DefaultClock{Clock: s.clock}.Now()
+}
+
+// linkColumns is the column list, in scan order, shared by every query that
+// loads Links. Description is read through COALESCE so a NULL surfaces as the
+// empty string.
+const linkColumns = `Short, Long, COALESCE(Description, ''), Created, LastEdit, Owner`
+
+// scanLink scans a single Link row (in linkColumns order) from s, which is
+// satisfied by both *sql.Row and *sql.Rows.
+func scanLink(s interface{ Scan(...any) error }) (*Link, error) {
+	link := new(Link)
+	var created, lastEdit int64
+	if err := s.Scan(&link.Short, &link.Long, &link.Description, &created, &lastEdit, &link.Owner); err != nil {
+		return nil, err
+	}
+	link.Created = time.Unix(created, 0).UTC()
+	link.LastEdit = time.Unix(lastEdit, 0).UTC()
+	return link, nil
 }
 
 // LoadAll returns all stored Links.
@@ -80,19 +117,15 @@ func (s *SQLiteDB) LoadAll() ([]*Link, error) {
 	defer s.mu.RUnlock()
 
 	var links []*Link
-	rows, err := s.db.Query("SELECT Short, Long, Created, LastEdit, Owner FROM Links")
+	rows, err := s.db.Query("SELECT " + linkColumns + " FROM Links")
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		link := new(Link)
-		var created, lastEdit int64
-		err := rows.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner)
+		link, err := scanLink(rows)
 		if err != nil {
 			return nil, err
 		}
-		link.Created = time.Unix(created, 0).UTC()
-		link.LastEdit = time.Unix(lastEdit, 0).UTC()
 		links = append(links, link)
 	}
 	return links, rows.Err()
@@ -107,18 +140,14 @@ func (s *SQLiteDB) Load(short string) (*Link, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	link := new(Link)
-	var created, lastEdit int64
-	row := s.db.QueryRow("SELECT Short, Long, Created, LastEdit, Owner FROM Links WHERE ID = ?1 LIMIT 1", linkID(short))
-	err := row.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner)
+	row := s.db.QueryRow("SELECT "+linkColumns+" FROM Links WHERE ID = ?1 LIMIT 1", linkID(short))
+	link, err := scanLink(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			err = fs.ErrNotExist
 		}
 		return nil, err
 	}
-	link.Created = time.Unix(created, 0).UTC()
-	link.LastEdit = time.Unix(lastEdit, 0).UTC()
 	return link, nil
 }
 
@@ -127,7 +156,9 @@ func (s *SQLiteDB) Save(link *Link) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	result, err := s.db.Exec("INSERT OR REPLACE INTO Links (ID, Short, Long, Created, LastEdit, Owner) VALUES (?, ?, ?, ?, ?, ?)", linkID(link.Short), link.Short, link.Long, link.Created.Unix(), link.LastEdit.Unix(), link.Owner)
+	// Store an absent description as NULL rather than an empty string.
+	description := sql.NullString{String: link.Description, Valid: link.Description != ""}
+	result, err := s.db.Exec("INSERT OR REPLACE INTO Links (ID, Short, Long, Description, Created, LastEdit, Owner) VALUES (?, ?, ?, ?, ?, ?, ?)", linkID(link.Short), link.Short, link.Long, description, link.Created.Unix(), link.LastEdit.Unix(), link.Owner)
 	if err != nil {
 		return err
 	}
@@ -232,19 +263,15 @@ func (s *SQLiteDB) GetLinksByOwner(owner string) ([]*Link, error) {
 	defer s.mu.RUnlock()
 
 	var links []*Link
-	rows, err := s.db.Query("SELECT Short, Long, Created, LastEdit, Owner FROM Links WHERE LOWER(Owner) = LOWER(?)", owner)
+	rows, err := s.db.Query("SELECT "+linkColumns+" FROM Links WHERE LOWER(Owner) = LOWER(?)", owner)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		link := new(Link)
-		var created, lastEdit int64
-		err := rows.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner)
+		link, err := scanLink(rows)
 		if err != nil {
 			return nil, err
 		}
-		link.Created = time.Unix(created, 0).UTC()
-		link.LastEdit = time.Unix(lastEdit, 0).UTC()
 		links = append(links, link)
 	}
 	return links, rows.Err()

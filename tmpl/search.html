@@ -6,6 +6,7 @@
           <th class="flex-1 p-2">Link</th>
           <th class="hidden md:block w-60 truncate p-2">Owner</th>
           <th class="hidden md:block w-32 p-2">Last Edited</th>
+          <th class="hidden md:block w-20 p-2">Clicks</th>
         </tr>
       </thead>
       <tbody>
@@ -21,9 +22,11 @@
             <p class="text-sm leading-normal text-gray-500 group-hover:text-gray-700 max-w-[75vw] md:max-w-[40vw] truncate">{{ .Long }}</p>
             <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Owner</span> {{ .Owner }}</p>
             <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Last Edited</span> {{ .LastEdit.Format "Jan 2, 2006" }}</p>
+            <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Clicks</span> {{ .NumClicks }}</p>
           </td>
           <td class="hidden md:block w-60 truncate p-2">{{ .Owner }}</td>
           <td class="hidden md:block w-32 p-2">{{ .LastEdit.Format "Jan 2, 2006" }}</td>
+          <td class="hidden md:block w-20 p-2">{{ .NumClicks }}</td>
         </tr>
       {{ end }}
       </tbody>

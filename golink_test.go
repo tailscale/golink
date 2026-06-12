@@ -849,6 +849,44 @@ func TestServeSearch(t *testing.T) {
 	}
 }
 
+func TestSearchResults(t *testing.T) {
+	stats.mu.Lock()
+	stats.clicks = ClickStats{"alpha": 3, "beta": 10}
+	stats.mu.Unlock()
+	t.Cleanup(func() {
+		stats.mu.Lock()
+		stats.clicks = nil
+		stats.mu.Unlock()
+	})
+
+	links := []*Link{
+		{Short: "alpha"},
+		{Short: "beta"},
+		{Short: "gamma"}, // no recorded clicks; should annotate to 0
+	}
+
+	// Expect the historical alphabetical ordering by short name, with each
+	// link annotated with its current click count.
+	want := []struct {
+		Short     string
+		NumClicks int
+	}{
+		{Short: "alpha", NumClicks: 3},
+		{Short: "beta", NumClicks: 10},
+		{Short: "gamma", NumClicks: 0},
+	}
+
+	got := searchResults(links)
+	if len(got) != len(want) {
+		t.Fatalf("searchResults returned %d results; want %d", len(got), len(want))
+	}
+	for i, w := range want {
+		if got[i].Short != w.Short || got[i].NumClicks != w.NumClicks {
+			t.Errorf("result[%d] = {%q, %d}; want {%q, %d}", i, got[i].Short, got[i].NumClicks, w.Short, w.NumClicks)
+		}
+	}
+}
+
 func TestParseAdvertiseTags(t *testing.T) {
 	tests := []struct {
 		name    string

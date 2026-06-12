@@ -336,6 +336,30 @@ type visitData struct {
 	NumClicks int
 }
 
+// searchResult is a link paired with its current click count, used to render
+// the listing template (searchTmpl) served by /.all and /.search.
+type searchResult struct {
+	*Link
+	NumClicks int
+}
+
+// searchResults annotates links with their current click counts (read from the
+// live in-memory counter, the same source the home page uses), preserving the
+// historical alphabetical ordering by short name.
+func searchResults(links []*Link) []searchResult {
+	stats.mu.Lock()
+	results := make([]searchResult, len(links))
+	for i, link := range links {
+		results[i] = searchResult{Link: link, NumClicks: stats.clicks[link.Short]}
+	}
+	stats.mu.Unlock()
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Short < results[j].Short
+	})
+	return results
+}
+
 // homeData is the data used by homeTmpl.
 type homeData struct {
 	Short    string
@@ -594,11 +618,8 @@ func serveAll(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sort.Slice(links, func(i, j int) bool {
-		return links[i].Short < links[j].Short
-	})
 
-	searchTmpl.Execute(w, links)
+	searchTmpl.Execute(w, searchResults(links))
 }
 
 func serveHelp(w http.ResponseWriter, _ *http.Request) {
@@ -766,10 +787,7 @@ func serveSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sort.Slice(links, func(i, j int) bool {
-		return links[i].Short < links[j].Short
-	})
-	searchTmpl.Execute(w, links)
+	searchTmpl.Execute(w, searchResults(links))
 }
 
 type expandEnv struct {

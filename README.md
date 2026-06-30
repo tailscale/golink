@@ -53,9 +53,36 @@ You will also need to specify your sqlite database file:
 golink stores its tailscale data files in a `tsnet-golink` directory inside [os.UserConfigDir].
 As long as this is on a persistent volume, the auth key only needs to be provided on first run.
 
+Instead of passing the key inline, you can have golink read it from a file with
+the `--auth-key-file` flag (or the `TS_AUTHKEY_FILE` environment variable).
+This is useful when the key is provided as a mounted secret:
+
+    golink -sqlitedb golink.db --auth-key-file /run/secrets/ts_authkey
+
 [auth key]: https://tailscale.com/kb/1085/auth-keys/
 [tag]: https://tailscale.com/kb/1068/acl-tags/
 [os.UserConfigDir]: https://pkg.go.dev/os#UserConfigDir
+
+## Workload identity federation
+
+golink supports authenticating via [workload identity federation] (WIF) instead
+of an auth key, which is convenient when running on infrastructure that can issue
+short-lived OIDC tokens (for example, a Kubernetes pod with a mounted
+ServiceAccount token).
+
+Set the OAuth client ID with `TS_CLIENT_ID` and provide an ID token. The token
+can be supplied directly via `TS_ID_TOKEN`, or read from a file with the
+`--id-token-file` flag (or `TS_ID_TOKEN_FILE` environment variable):
+
+    TS_CLIENT_ID="<client-id>" \
+      golink -sqlitedb golink.db \
+      --id-token-file /var/run/secrets/kubernetes.io/serviceaccount/token
+
+Alternatively, set `TS_AUDIENCE` (instead of an ID token) to have tsnet request a
+token from a well-known identity provider. Exactly one of an ID token or an
+audience must be provided.
+
+[workload identity federation]: https://pkg.go.dev/tailscale.com/tsnet#hdr-Authentication
 
 ## Registering as a Tailscale Service
 

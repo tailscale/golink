@@ -1,7 +1,5 @@
 # golink
 
-[![status: experimental](https://img.shields.io/badge/status-experimental-blue)](https://tailscale.com/kb/1167/release-stages/#experimental)
-
 golink is a private shortlink service for your [tailnet].
 It lets you create short, memorable links for the websites you and your team use most.
 If you're new to golink, learn more in our [announcement blog post](https://tailscale.com/blog/golink/).
@@ -11,6 +9,17 @@ you might be thinking of [golinks.io](https://golinks.io) or [trot.to](http://tr
 [tailnet]: https://tailscale.com/kb/1136/tailnet/
 
 ![Screenshot of golink home screen](screenshot.png)
+
+## How Tailscale uses golink
+
+We use golink at Tailscale every day by every part of the company.
+It is easily one of the most used services on our corporate tailnet.
+We even had to change our new hire onboarding to have employees join our tailnet sooner,
+since much of the rest of our onboarding involved visiting various go links.
+
+Our production environment is pretty plain; we just run it on a pretty vanilla EC2 VM.
+We [backup](#backups) all of our go links once a week from a GitHub Action that stores the snapshot in our internal git monorepo.
+That repo has a wrapper script around `golink -resolve-from-backup` so that anyone with a local copy of the repo can always resolve go links offline.
 
 ## Building and running
 

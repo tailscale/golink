@@ -18,8 +18,8 @@ We even had to change our new hire onboarding to have employees join our tailnet
 since much of the rest of our onboarding involved visiting various go links.
 
 Our production environment is pretty plain; we just run it on a pretty vanilla EC2 VM.
-We [backup](#backups) all of our go links once a week from a GitHub Action that stores the snapshot in our internal git monorepo.
-That repo has a wrapper script around `golink -resolve-from-backup` so that anyone with a local copy of the repo can always resolve go links offline.
+We [back up](#backups) all of our go links once a week from a GitHub Action that stores the snapshot in our internal git monorepo.
+That repo has a wrapper script around `golink --resolve-from-backup` so that anyone with a local copy of the repo can always resolve go links offline.
 
 ## Building and running
 
@@ -306,7 +306,7 @@ you could assign the grant to `autogroup:member`:
 
 ## Backups
 
-Once you have golink running, you can backup all of your links in [JSON lines] format from <http://go/.export>.
+Once you have golink running, you can back up all of your links in [JSON lines] format from <http://go/.export>.
 At Tailscale, we snapshot our links weekly and store them in git.
 
 To restore links, specify the snapshot file on startup.

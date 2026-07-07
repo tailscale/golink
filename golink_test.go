@@ -293,6 +293,40 @@ func TestServeSave(t *testing.T) {
 	}
 }
 
+// TestServeSaveDescription verifies an optional description posted to the save
+// handler is persisted on the link.
+func TestServeSaveDescription(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{
+		"short":       {"described"},
+		"long":        {"http://example.com/"},
+		"description": {"  a helpful description  "},
+		"xsrf":        {xsrftoken.Generate(xsrfKey, "foo@example.com", newShortName)},
+	}
+	r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveSave(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("serveSave = %d; want %d", w.Code, http.StatusOK)
+	}
+
+	link, err := db.Load("described")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Surrounding whitespace should be trimmed.
+	if want := "a helpful description"; link.Description != want {
+		t.Errorf("Description = %q; want %q", link.Description, want)
+	}
+}
+
 func TestServeDelete(t *testing.T) {
 	var err error
 	db, err = NewSQLiteDB(":memory:")
@@ -416,9 +450,9 @@ func TestServeExport(t *testing.T) {
 	if want := http.StatusOK; w.Code != want {
 		t.Errorf("serveExport = %d; want %d", w.Code, want)
 	}
-	wantOutput := `{"Short":"a","Long":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"a@example.com"}
-{"Short":"foo","Long":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"foo@example.com"}
-{"Short":"link-owned-by-tagged-devices","Long":"/before","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"tagged-devices"}
+	wantOutput := `{"Short":"a","Long":"","Description":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"a@example.com"}
+{"Short":"foo","Long":"","Description":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"foo@example.com"}
+{"Short":"link-owned-by-tagged-devices","Long":"/before","Description":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"tagged-devices"}
 `
 	if got := w.Body.String(); got != wantOutput {
 		t.Errorf("serveExport = %v; want %v", got, wantOutput)

@@ -21,6 +21,9 @@
 
       <p class="text-sm text-gray-500"><a class="text-blue-600 hover:underline" href="/.help">Help and advanced options</a></p>
 
+      <label for=description class="text-sm font-bold block mt-4">Description <span class="font-normal text-gray-400">(optional)</span></label>
+      <textarea id=description name=description rows=2 placeholder="What is this link for?" class="p-2 w-full max-w-2xl rounded-md border-gray-300 placeholder:text-gray-400">{{.Link.Description}}</textarea>
+
       <label for=owner class="text-sm font-bold block mt-4">Owner</label>
       <input id=owner name=owner required type=text size=25 placeholder="Owner" value="{{.Link.Owner}}" class="p-2 rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
 
@@ -49,6 +52,11 @@
 
       <dt class="text-sm font-bold mt-6">Destination</dt>
       <dd>{{.Link.Long}}</dd>
+
+      {{ with .Link.Description }}
+      <dt class="text-sm font-bold mt-6">Description</dt>
+      <dd class="max-w-2xl break-words">{{.}}</dd>
+      {{ end }}
 
       <dt class="text-sm font-bold mt-6">Owner</dt>
       <dd>{{.Link.Owner}}</dd>

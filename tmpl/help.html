@@ -138,7 +138,17 @@ This is useful to create data snapshots that can be restored later.
 Create a new link by sending a POST request with a <code>short</code> and <code>long</code> value:
 
 <pre>$ curl -L --post302 -H Sec-Golink:1 -d short=cs -d long=https://cs.github.com/ {{go}}
-{{`{"Short":"cs","Long":"https://cs.github.com/","Created":"2022-06-03T22:15:29.993978392Z","LastEdit":"2022-06-03T22:15:29.993978392Z","Owner":"amelie@example.com"}`}}
+{{`{"Short":"cs","Long":"https://cs.github.com/","Description":"","Created":"2022-06-03T22:15:29.993978392Z","LastEdit":"2022-06-03T22:15:29.993978392Z","Owner":"amelie@example.com"}`}}
+</pre>
+
+<p>
+You may also include an optional <code>description</code> to help others understand
+what a link is for. It is shown on the link's detail page and alongside the link
+in the link lists (the home page, <code>{{go}}/.all</code>, and search results):
+</p>
+
+<pre>$ curl -L --post302 -H Sec-Golink:1 -d short=cs -d long=https://cs.github.com/ -d description="Code search" {{go}}
+{{`{"Short":"cs","Long":"https://cs.github.com/","Description":"Code search","Created":"2022-06-03T22:15:29.993978392Z","LastEdit":"2022-06-03T22:15:29.993978392Z","Owner":"amelie@example.com"}`}}
 </pre>
 
 </article>

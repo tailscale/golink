@@ -65,6 +65,27 @@ func Test_SQLiteDB_SaveLoadDeleteLinks(t *testing.T) {
 	}
 }
 
+// Test that a Link's Description is persisted and loaded.
+func Test_SQLiteDB_Description(t *testing.T) {
+	db, err := NewSQLiteDB(path.Join(t.TempDir(), "links.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	link := &Link{Short: "desc", Long: "long", Description: "a helpful description"}
+	if err := db.Save(link); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.Load("desc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Description != link.Description {
+		t.Errorf("Description = %q; want %q", got.Description, link.Description)
+	}
+}
+
 // Test saving, loading, and deleting stats for SQLiteDB.
 func Test_SQLiteDB_SaveLoadDeleteStats(t *testing.T) {
 	db, err := NewSQLiteDB(path.Join(t.TempDir(), "links.db"))

@@ -27,6 +27,7 @@
         <tr>
           <th class="p-2">Link</th>
           <th class="p-2">Clicks</th>
+          <th class="p-2">URL</th>
         </tr>
       </thead>
       <tbody>
@@ -39,6 +40,7 @@
             </a>
           </td>
           <td class="p-2">{{.NumClicks}}</td>
+          <td class="p-2"><a href="{{.Long}}">{{.Long}}</a></td>
         </tr>
       {{end}}
       </tbody>

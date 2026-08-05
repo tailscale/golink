@@ -156,6 +156,27 @@ func TestServeGo(t *testing.T) {
 	}
 }
 
+func TestReferrerPolicy(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Save(&Link{Short: "who", Long: "http://who/"})
+
+	// all responses should ask the browser to suppress the Referer header,
+	// so that link destinations never learn the golink host.
+	for _, path := range []string{"/", "/who", "/.detail/who"} {
+		r := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		serveHandler().ServeHTTP(w, r)
+
+		if got := w.Header().Get("Referrer-Policy"); got != "no-referrer" {
+			t.Errorf("GET %q: Referrer-Policy = %q; want %q", path, got, "no-referrer")
+		}
+	}
+}
+
 func TestServeSave(t *testing.T) {
 	var err error
 	db, err = NewSQLiteDB(":memory:")

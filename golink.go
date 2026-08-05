@@ -545,6 +545,13 @@ func serveHandler() http.Handler {
 	mux.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Never send a Referer header to link destinations, which would
+		// otherwise expose the golink host (and thus the tailnet name) to
+		// external sites. Setting the policy on redirect responses also
+		// strips any referrer inherited from the page that linked to the
+		// go link.
+		w.Header().Set("Referrer-Policy", "no-referrer")
+
 		// all internal URLs begin with a leading "."; any other URL is treated as a go link.
 		// Serve go links directly without passing through the ServeMux,
 		// which sometimes modifies the request URL path, which we don't want.

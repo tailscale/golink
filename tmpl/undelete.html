@@ -1,0 +1,32 @@
+{{ define "main" }}
+    <h2 class="text-xl font-bold pb-2">Link {{go}}/{{.Short}} Deleted</h2>
+
+    <div class="bg-red-50 border-l-4 border-red-400 p-4 my-4">
+        <div class="flex">
+            <div class="ml-3">
+                <p class="text-sm text-red-700">
+                    <strong>{{go}}/{{.Short}}</strong> was deleted on {{.DeletedAt.Format "January 2, 2006 at 3:04 PM"}}
+                </p>
+                <p class="text-sm text-red-700 mt-2">
+                    This link previously pointed to: <code class="bg-red-100 px-1 rounded">{{.Long}}</code>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    {{if .CanUndelete}}
+        <div class="my-6">
+            <form action="/.undelete/{{.Short}}" method="POST">
+                <input name="xsrf" type="hidden" value="{{.XSRF}}"/>
+                <button class="py-2 px-4 my-2 rounded-md bg-blue-500 border-blue-500 text-white hover:bg-blue-600 hover:border-blue-600"
+                    type="submit">
+                    Restore this link
+                </button>
+            </form>
+        </div>
+    {{end}}
+
+    <p class="mt-6">
+        <a class="text-blue-600 hover:underline" href="/">← Go back home</a>
+    </p>
+{{ end }}

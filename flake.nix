@@ -2,7 +2,7 @@
   description = "golink - A private shortlink service for tailnets";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     systems.url = "github:nix-systems/default";
   };
 
@@ -20,27 +20,6 @@
         nixpkgs.lib.genAttrs (import systems) (system:
           f (import nixpkgs {
             system = system;
-            overlays = [
-              (final: prev: {
-                go_1_26 = prev.go_1_26.overrideAttrs (old: {
-                  version = goVersion;
-                  src = prev.fetchFromGitHub {
-                    owner = "tailscale";
-                    repo = "go";
-                    rev = toolChainRev;
-                    sha256 = gitHash;
-                  };
-                  # Keep tailscale.toolchain.rev embedded in build settings.
-                  # Without this, binaries built with the tailscale_go tag can panic at init.
-                  postPatch =
-                    (old.postPatch or "")
-                    + ''
-                      substituteInPlace src/runtime/debug/mod.go \
-                        --replace-fail "TAILSCALE_GIT_REV_TO_BE_REPLACED_AT_BUILD_TIME" "${toolChainRev}"
-                    '';
-                });
-              })
-            ];
           }));
       tailscaleRev = self.rev or "";
     in

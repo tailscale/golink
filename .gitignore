@@ -3,3 +3,8 @@ package-lock.json
 .direnv
 .envrc
 result
+.idea/
+TODO.md
+coverage.html
+coverage.out
+golink

@@ -59,30 +59,6 @@ const (
 )
 
 var (
-	verbose           = flag.Bool("verbose", false, "be verbose")
-	controlURL        = flag.String("control-url", ipn.DefaultControlURL, "the URL base of the control plane (i.e. coordination server)")
-	sqlitefile        = flag.String("sqlitedb", "", "path of SQLite database to store links")
-	dev               = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
-	useHTTPS          = flag.Bool("https", true, "serve golink over HTTPS if enabled on tailnet")
-	snapshot          = flag.String("snapshot", "", "file path of snapshot file")
-	hostname          = flag.String("hostname", defaultHostname, "service name")
-	configDir         = flag.String("config-dir", "", `tsnet configuration directory ("" to use default)`)
-	resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
-	allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
-	readonly          = flag.Bool("readonly", false, "start golink server in read-only mode")
-	advertiseTags     = flag.String("advertise-tags", os.Getenv("TS_ADVERTISE_TAGS"), "comma-separated list of ACL tags to advertise (e.g. tag:golink)")
-	serviceName       = flag.String("register-as-service", envknob.String("TS_SERVICE_NAME"), "register as a Tailscale Service (e.g., svc:golink); requires tagged node")
-)
-
-var stats struct {
-	mu     sync.Mutex
-	clicks ClickStats // short link -> number of times visited
-
-	// dirty identifies short link clicks that have not yet been stored.
-	dirty ClickStats
-}
-
-var (
 	clickCounter = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "golink_clicks_total",
@@ -112,13 +88,172 @@ var LastSnapshot []byte
 //go:embed static tmpl/*.html tmpl/*.xml
 var embeddedFS embed.FS
 
-// db stores short links.
-var db *SQLiteDB
+// Options configures a golink HTTP application. The caller retains ownership
+// of DB and LocalClient and must keep both usable while serving requests.
+type Options struct {
+	// DB is the database that stores short links. It is required.
+	DB *SQLiteDB
 
-var localClient *local.Client
+	// LocalClient is the LocalAPI client used for request authorization and
+	// tailnet user lookup. It is required for serving requests unless Dev is
+	// true; it may be nil for offline use such as CLI link resolution.
+	LocalClient *local.Client
 
-func Run() error {
+	// Hostname is the service name used when rendering links.
+	// It defaults to "go".
+	Hostname string
+
+	// ReadOnly starts the server in read-only mode.
+	ReadOnly bool
+
+	// AllowUnknownUsers allows unknown users to save links.
+	AllowUnknownUsers bool
+
+	// ServiceName is the Tailscale Service (e.g. "svc:golink") the server is
+	// registered as, if any. In service mode, identity headers injected by
+	// tsnet's internal proxy are trusted for requests from loopback.
+	ServiceName string
+
+	// Dev runs the server in development mode: requests are authenticated as
+	// a fake user without consulting the LocalAPI.
+	Dev bool
+
+	// Verbose enables verbose logging.
+	Verbose bool
+}
+
+// Server is the golink HTTP application. It serves the shortlink UI and API;
+// the caller retains ownership of tsnet, listener, and state lifecycle.
+type Server struct {
+	db                *SQLiteDB
+	lc                *local.Client
+	hostname          string
+	readonly          bool
+	allowUnknownUsers bool
+	serviceName       string
+	dev               bool
+	verbose           bool
+
+	xsrfKey string
+
+	stats struct {
+		mu     sync.Mutex
+		clicks ClickStats // short link -> number of times visited
+
+		// dirty identifies short link clicks that have not yet been stored.
+		dirty ClickStats
+	}
+
+	// homeTmpl is the template used by the http://go/ index page where you can
+	// create or edit links.
+	homeTmpl *template.Template
+
+	// detailTmpl is the template used by the link detail page to view or edit links.
+	detailTmpl *template.Template
+
+	// successTmpl is the template used when a link is successfully created or updated.
+	successTmpl *template.Template
+
+	// helpTmpl is the template used by the http://go/.help page
+	helpTmpl *template.Template
+
+	// deleteTmpl is the template used after a link has been deleted.
+	deleteTmpl *template.Template
+
+	// opensearchTmpl is the template used by the http://go/.opensearch page
+	opensearchTmpl *template.Template
+
+	// searchTmpl is the template used by the http://go/.search page
+	searchTmpl *template.Template
+
+	// The following funcs are fields so that they can be overridden in tests.
+
+	// currentUser returns the Tailscale user associated with the request.
+	currentUser func(r *http.Request) (user, error)
+	// whoisFunc calls the LocalAPI WhoIs; by default it calls lc.WhoIs.
+	whoisFunc func(ctx context.Context, ip string) (*apitype.WhoIsResponse, error)
+	// trustIdentityHeaders returns whether identity headers injected by
+	// tsnet's internal proxy should be trusted for the request.
+	trustIdentityHeaders func(r *http.Request) bool
+	// extractUserFromHeaders extracts the user from HTTP headers injected by
+	// tsnet's internal proxy.
+	extractUserFromHeaders func(r *http.Request) user
+}
+
+// New creates an initialized golink HTTP application. It does not start any
+// listeners or take ownership of the database or LocalAPI client.
+func New(opts Options) (*Server, error) {
+	if opts.DB == nil {
+		return nil, errors.New("nil database")
+	}
+	s := &Server{
+		db:                opts.DB,
+		lc:                opts.LocalClient,
+		hostname:          opts.Hostname,
+		readonly:          opts.ReadOnly,
+		allowUnknownUsers: opts.AllowUnknownUsers,
+		serviceName:       opts.ServiceName,
+		dev:               opts.Dev,
+		verbose:           opts.Verbose,
+	}
+	if s.hostname == "" {
+		s.hostname = defaultHostname
+	}
+
+	b := make([]byte, 24)
+	rand.Read(b)
+	s.xsrfKey = base64.StdEncoding.EncodeToString(b)
+
+	s.homeTmpl = s.newTemplate("base.html", "home.html")
+	s.detailTmpl = s.newTemplate("base.html", "detail.html")
+	s.successTmpl = s.newTemplate("base.html", "success.html")
+	s.helpTmpl = s.newTemplate("base.html", "help.html")
+	s.deleteTmpl = s.newTemplate("base.html", "delete.html")
+	s.opensearchTmpl = s.newTemplate("opensearch.xml")
+	s.searchTmpl = s.newTemplate("base.html", "search.html")
+
+	s.currentUser = s.defaultCurrentUser
+	s.whoisFunc = func(ctx context.Context, ip string) (*apitype.WhoIsResponse, error) {
+		return s.lc.WhoIs(ctx, ip)
+	}
+	s.trustIdentityHeaders = s.defaultTrustIdentityHeaders
+	s.extractUserFromHeaders = s.defaultExtractUserFromHeaders
+
+	if err := s.restoreSnapshot(LastSnapshot); err != nil {
+		log.Printf("restoring snapshot: %v", err)
+	}
+	if err := s.initStats(); err != nil {
+		log.Printf("initializing stats: %v", err)
+	}
+	if err := s.initMetricsData(); err != nil {
+		log.Printf("initializing metrics data: %v", err)
+	}
+	return s, nil
+}
+
+// Run runs golink as a standalone command, owning flag parsing, tsnet, and
+// listener lifecycle. It serves until ctx is canceled, then drains its HTTP
+// listeners and flushes link stats before it returns. It is the entry point
+// of cmd/golink; embedders should use New instead.
+func Run(ctx context.Context) error {
+	var (
+		verbose           = flag.Bool("verbose", false, "be verbose")
+		controlURL        = flag.String("control-url", ipn.DefaultControlURL, "the URL base of the control plane (i.e. coordination server)")
+		sqlitefile        = flag.String("sqlitedb", "", "path of SQLite database to store links")
+		dev               = flag.String("dev-listen", "", "if non-empty, listen on this addr and run in dev mode; auto-set sqlitedb if empty and don't use tsnet")
+		useHTTPS          = flag.Bool("https", true, "serve golink over HTTPS if enabled on tailnet")
+		snapshot          = flag.String("snapshot", "", "file path of snapshot file")
+		hostname          = flag.String("hostname", defaultHostname, "service name")
+		configDir         = flag.String("config-dir", "", `tsnet configuration directory ("" to use default)`)
+		resolveFromBackup = flag.String("resolve-from-backup", "", "resolve a link from snapshot file and exit")
+		allowUnknownUsers = flag.Bool("allow-unknown-users", false, "allow unknown users to save links")
+		readonly          = flag.Bool("readonly", false, "start golink server in read-only mode")
+		advertiseTags     = flag.String("advertise-tags", os.Getenv("TS_ADVERTISE_TAGS"), "comma-separated list of ACL tags to advertise (e.g. tag:golink)")
+		serviceName       = flag.String("register-as-service", envknob.String("TS_SERVICE_NAME"), "register as a Tailscale Service (e.g., svc:golink); requires tagged node")
+	)
 	flag.Parse()
+
+	devMode := func() bool { return *dev != "" }
 
 	hostinfo.SetApp("golink")
 
@@ -145,8 +280,8 @@ func Run() error {
 		}
 	}
 
-	var err error
-	if db, err = NewSQLiteDB(*sqlitefile); err != nil {
+	db, err := NewSQLiteDB(*sqlitefile)
+	if err != nil {
 		return fmt.Errorf("NewSQLiteDB(%q): %w", *sqlitefile, err)
 	}
 
@@ -161,14 +296,18 @@ func Run() error {
 			}
 		}
 	}
-	if err := restoreLastSnapshot(); err != nil {
-		log.Printf("restoring snapshot: %v", err)
-	}
-	if err := initStats(); err != nil {
-		log.Printf("initializing stats: %v", err)
-	}
-	if err := initMetricsData(); err != nil {
-		log.Printf("initializing metrics data: %v", err)
+
+	s, err := New(Options{
+		DB:                db,
+		Hostname:          *hostname,
+		ReadOnly:          *readonly,
+		AllowUnknownUsers: *allowUnknownUsers,
+		ServiceName:       *serviceName,
+		Dev:               devMode(),
+		Verbose:           *verbose,
+	})
+	if err != nil {
+		return err
 	}
 
 	// if link specified on command line, resolve and exit
@@ -177,7 +316,7 @@ func Run() error {
 		if err != nil {
 			log.Fatal(err)
 		}
-		dst, err := resolveLink(u)
+		dst, err := s.resolveLink(u)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -186,7 +325,15 @@ func Run() error {
 	}
 
 	// flush stats periodically
-	go flushStatsLoop()
+	go s.FlushStatsLoop(ctx)
+
+	// Flush once more after the listeners drain. FlushStatsLoop's final
+	// flush can run before in-flight requests record their clicks.
+	defer func() {
+		if err := s.FlushStats(); err != nil {
+			log.Printf("flushing stats: %v", err)
+		}
+	}()
 
 	if *dev != "" {
 		// override default hostname for dev mode
@@ -200,7 +347,11 @@ func Run() error {
 		}
 
 		log.Printf("Running in dev mode on %s ...", *dev)
-		log.Fatal(http.ListenAndServe(*dev, serveHandler()))
+		ln, err := net.Listen("tcp", *dev)
+		if err != nil {
+			return err
+		}
+		return serveHTTP(ctx, listenerServer{srv: &http.Server{Handler: s.Handler()}, ln: ln})
 	}
 
 	if *hostname == "" {
@@ -213,7 +364,7 @@ func Run() error {
 	}
 
 	// create tsNet server and wait for it to be ready & connected.
-	srv := &tsnet.Server{
+	ts := &tsnet.Server{
 		ControlURL:    *controlURL,
 		Dir:           *configDir,
 		Hostname:      *hostname,
@@ -222,18 +373,22 @@ func Run() error {
 		AdvertiseTags: tags,
 	}
 	if *verbose {
-		srv.Logf = log.Printf
+		ts.Logf = log.Printf
 	}
-	if err := srv.Start(); err != nil {
+	if err := ts.Start(); err != nil {
 		return err
 	}
 
-	localClient, _ = srv.LocalClient()
+	lc, err := ts.LocalClient()
+	if err != nil {
+		return err
+	}
+	s.lc = lc
 out:
 	for {
 		upCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		status, err := srv.Up(upCtx)
+		status, err := ts.Up(upCtx)
 		if err == nil && status != nil {
 			break out
 		}
@@ -241,14 +396,14 @@ out:
 
 	statusCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	status, err := localClient.Status(statusCtx)
+	status, err := lc.Status(statusCtx)
 	if err != nil {
 		return err
 	}
-	enableTLS := *useHTTPS && status.Self.HasCap(tailcfg.CapabilityHTTPS) && len(srv.CertDomains()) > 0
+	enableTLS := *useHTTPS && status.Self.HasCap(tailcfg.CapabilityHTTPS) && len(ts.CertDomains()) > 0
 	fqdn := strings.TrimSuffix(status.Self.DNSName, ".")
 
-	httpHandler := serveHandler()
+	httpHandler := s.Handler()
 
 	// Service registration mode: use ListenService instead of standard listeners
 	if *serviceName != "" {
@@ -257,7 +412,7 @@ out:
 		}
 
 		log.Printf("Registering as Tailscale Service: %s", *serviceName)
-		serviceListener, err := srv.ListenService(*serviceName, tsnet.ServiceModeHTTP{
+		serviceListener, err := ts.ListenService(*serviceName, tsnet.ServiceModeHTTP{
 			HTTPS: true,
 			Port:  443,
 		})
@@ -270,66 +425,69 @@ out:
 
 		httpsHandler := HSTS(httpHandler)
 		log.Printf("Serving https://%s/ as service %s ...", fqdn, *serviceName)
-		return http.Serve(serviceListener, httpsHandler)
+		return serveHTTP(ctx, listenerServer{srv: &http.Server{Handler: httpsHandler}, ln: serviceListener})
 	}
 
 	// Standard mode: use regular listeners
+	var servers []listenerServer
 	if enableTLS {
 		httpsHandler := HSTS(httpHandler)
-		httpHandler = redirectHandler(fqdn)
+		httpHandler = RedirectHandler(fqdn)
 
-		httpsListener, err := srv.ListenTLS("tcp", ":443")
+		httpsListener, err := ts.ListenTLS("tcp", ":443")
 		if err != nil {
 			return err
 		}
 		log.Println("Listening on :443")
-		go func() {
-			log.Printf("Serving https://%s/ ...", fqdn)
-			if err := http.Serve(httpsListener, httpsHandler); err != nil {
-				log.Fatal(err)
-			}
-		}()
+		log.Printf("Serving https://%s/ ...", fqdn)
+		servers = append(servers, listenerServer{srv: &http.Server{Handler: httpsHandler}, ln: httpsListener})
 	}
 
-	httpListener, err := srv.Listen("tcp", ":80")
-	log.Println("Listening on :80")
+	httpListener, err := ts.Listen("tcp", ":80")
 	if err != nil {
 		return err
 	}
+	log.Println("Listening on :80")
 	log.Printf("Serving http://%s/ ...", *hostname)
-	if err := http.Serve(httpListener, httpHandler); err != nil {
-		return err
-	}
+	servers = append(servers, listenerServer{srv: &http.Server{Handler: httpHandler}, ln: httpListener})
 
-	return nil
+	return serveHTTP(ctx, servers...)
 }
 
-var (
-	// homeTmpl is the template used by the http://go/ index page where you can
-	// create or edit links.
-	homeTmpl *template.Template
+// listenerServer pairs an http.Server with the listener it serves on.
+type listenerServer struct {
+	srv *http.Server
+	ln  net.Listener
+}
 
-	// detailTmpl is the template used by the link detail page to view or edit links.
-	detailTmpl *template.Template
+// serveHTTP serves each server on its listener until one exits with an error
+// or ctx is canceled. On cancel it shuts every server down, letting in-flight
+// requests finish first. It returns the first serve or shutdown error it hit,
+// or nil when every server stopped cleanly.
+func serveHTTP(ctx context.Context, servers ...listenerServer) error {
+	errCh := make(chan error, len(servers))
+	for _, ls := range servers {
+		go func() { errCh <- ls.srv.Serve(ls.ln) }()
+	}
 
-	// successTmpl is the template used when a link is successfully created or updated.
-	successTmpl *template.Template
+	var serveErr error
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, http.ErrServerClosed) {
+			serveErr = err
+		}
+	case <-ctx.Done():
+	}
 
-	// helpTmpl is the template used by the http://go/.help page
-	helpTmpl *template.Template
-
-	// allTmpl is the template used by the http://go/.all page
-	allTmpl *template.Template
-
-	// deleteTmpl is the template used after a link has been deleted.
-	deleteTmpl *template.Template
-
-	// opensearchTmpl is the template used by the http://go/.opensearch page
-	opensearchTmpl *template.Template
-
-	// searchTmpl is the template used by the http://go/.search page
-	searchTmpl *template.Template
-)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, ls := range servers {
+		if err := ls.srv.Shutdown(shutdownCtx); err != nil && serveErr == nil {
+			serveErr = err
+		}
+	}
+	return serveErr
+}
 
 type visitData struct {
 	Short     string
@@ -346,13 +504,13 @@ type searchResult struct {
 // searchResults annotates links with their current click counts (read from the
 // live in-memory counter, the same source the home page uses), preserving the
 // historical alphabetical ordering by short name.
-func searchResults(links []*Link) []searchResult {
-	stats.mu.Lock()
+func (s *Server) searchResults(links []*Link) []searchResult {
+	s.stats.mu.Lock()
 	results := make([]searchResult, len(links))
 	for i, link := range links {
-		results[i] = searchResult{Link: link, NumClicks: stats.clicks[link.Short]}
+		results[i] = searchResult{Link: link, NumClicks: s.stats.clicks[link.Short]}
 	}
-	stats.mu.Unlock()
+	s.stats.mu.Unlock()
 
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Short < results[j].Short
@@ -377,41 +535,30 @@ type deleteData struct {
 	XSRF  string
 }
 
-var xsrfKey string
-
 func init() {
-	homeTmpl = newTemplate("base.html", "home.html")
-	detailTmpl = newTemplate("base.html", "detail.html")
-	successTmpl = newTemplate("base.html", "success.html")
-	helpTmpl = newTemplate("base.html", "help.html")
-	deleteTmpl = newTemplate("base.html", "delete.html")
-	opensearchTmpl = newTemplate("opensearch.xml")
-	searchTmpl = newTemplate("base.html", "search.html")
-
-	b := make([]byte, 24)
-	rand.Read(b)
-	xsrfKey = base64.StdEncoding.EncodeToString(b)
-
 	initMetrics()
 }
 
-var tmplFuncs = template.FuncMap{
-	// go is a template function that returns the hostname of the golink service.
-	// This is used throughout the UI to render links, but does not impact link resolution.
-	"go": func() string {
-		if devMode() {
-			// in dev mode, just use "go" instead of "localhost:8080"
-			return defaultHostname
-		}
-		return *hostname
-	},
+// tmplFuncs returns the template funcs available to this server's templates.
+func (s *Server) tmplFuncs() template.FuncMap {
+	return template.FuncMap{
+		// go is a template function that returns the hostname of the golink service.
+		// This is used throughout the UI to render links, but does not impact link resolution.
+		"go": func() string {
+			if s.dev {
+				// in dev mode, just use "go" instead of "localhost:8080"
+				return defaultHostname
+			}
+			return s.hostname
+		},
+	}
 }
 
 // newTemplate creates a new template with the specified files in the tmpl directory.
 // The first file name is used as the template name,
 // and tmplFuncs are registered as available funcs.
 // This func panics if unable to parse files.
-func newTemplate(files ...string) *template.Template {
+func (s *Server) newTemplate(files ...string) *template.Template {
 	if len(files) == 0 {
 		return nil
 	}
@@ -419,7 +566,7 @@ func newTemplate(files ...string) *template.Template {
 	for _, f := range files {
 		tf = append(tf, "tmpl/"+f)
 	}
-	t := template.New(files[0]).Funcs(tmplFuncs)
+	t := template.New(files[0]).Funcs(s.tmplFuncs())
 	return template.Must(t.ParseFS(embeddedFS, tf...))
 }
 
@@ -431,10 +578,10 @@ func initMetrics() {
 }
 
 // initMetricsData set metrics to what is represented in the DB
-func initMetricsData() error {
+func (s *Server) initMetricsData() error {
 	// Set the totalLinkCount metric to what is saved in the DB
 	var count float64
-	err := db.db.QueryRow("SELECT COUNT(DISTINCT id) FROM Links").Scan(&count)
+	err := s.db.db.QueryRow("SELECT COUNT(DISTINCT id) FROM Links").Scan(&count)
 	if err != nil {
 		return err
 	}
@@ -444,61 +591,69 @@ func initMetricsData() error {
 }
 
 // initStats initializes the in-memory stats counter with counts from db.
-func initStats() error {
-	stats.mu.Lock()
-	defer stats.mu.Unlock()
+func (s *Server) initStats() error {
+	s.stats.mu.Lock()
+	defer s.stats.mu.Unlock()
 
-	clicks, err := db.LoadStats()
+	clicks, err := s.db.LoadStats()
 	if err != nil {
 		return err
 	}
 
-	stats.clicks = clicks
-	stats.dirty = make(ClickStats)
+	s.stats.clicks = clicks
+	s.stats.dirty = make(ClickStats)
 
 	return nil
 }
 
-// flushStats writes any pending link stats to db.
-func flushStats() error {
-	stats.mu.Lock()
-	defer stats.mu.Unlock()
+// FlushStats writes any pending link stats to the database.
+func (s *Server) FlushStats() error {
+	s.stats.mu.Lock()
+	defer s.stats.mu.Unlock()
 
-	if len(stats.dirty) == 0 {
+	if len(s.stats.dirty) == 0 {
 		return nil
 	}
 
-	if err := db.SaveStats(stats.dirty); err != nil {
+	if err := s.db.SaveStats(s.stats.dirty); err != nil {
 		return err
 	}
-	stats.dirty = make(ClickStats)
+	s.stats.dirty = make(ClickStats)
 	return nil
 }
 
-// flushStatsLoop will flush stats every minute.  This function never returns.
-func flushStatsLoop() {
+// FlushStatsLoop flushes stats every minute until ctx is canceled, with a
+// final flush on shutdown.
+func (s *Server) FlushStatsLoop(ctx context.Context) {
 	for {
-		if err := flushStats(); err != nil {
-			log.Printf("flushing stats: %v", err)
+		select {
+		case <-ctx.Done():
+			if err := s.FlushStats(); err != nil {
+				log.Printf("flushing stats: %v", err)
+			}
+			return
+		case <-time.After(time.Minute):
+			if err := s.FlushStats(); err != nil {
+				log.Printf("flushing stats: %v", err)
+			}
 		}
-		time.Sleep(time.Minute)
 	}
 }
 
 // deleteLinkStats removes the link stats from memory.
-func deleteLinkStats(link *Link) {
+func (s *Server) deleteLinkStats(link *Link) {
 	totalLinkCount.Dec()
-	stats.mu.Lock()
-	delete(stats.clicks, link.Short)
-	delete(stats.dirty, link.Short)
-	stats.mu.Unlock()
+	s.stats.mu.Lock()
+	delete(s.stats.clicks, link.Short)
+	delete(s.stats.dirty, link.Short)
+	s.stats.mu.Unlock()
 
-	db.DeleteStats(link.Short)
+	s.db.DeleteStats(link.Short)
 }
 
-// redirectHandler returns the http.Handler for serving all plaintext HTTP
-// requests. It redirects all requests to the HTTPs version of the same URL.
-func redirectHandler(hostname string) http.Handler {
+// RedirectHandler returns the http.Handler for serving all plaintext HTTP
+// requests. It redirects all requests to the HTTPS version of the same URL.
+func RedirectHandler(hostname string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := &url.URL{
 			Scheme:   "https",
@@ -530,17 +685,17 @@ func HSTS(h http.Handler) http.Handler {
 	})
 }
 
-// serverHandler returns the main http.Handler for serving all requests.
-func serveHandler() http.Handler {
+// Handler returns the main http.Handler for serving all requests.
+func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/.detail/", serveDetail)
-	mux.HandleFunc("/.export", serveExport)
-	mux.HandleFunc("/.export-stats", serveExportStats)
-	mux.HandleFunc("/.help", serveHelp)
-	mux.HandleFunc("/.opensearch", serveOpenSearch)
-	mux.HandleFunc("/.all", serveAll)
-	mux.HandleFunc("/.delete/", serveDelete)
-	mux.HandleFunc("/.search", serveSearch)
+	mux.HandleFunc("/.detail/", s.serveDetail)
+	mux.HandleFunc("/.export", s.serveExport)
+	mux.HandleFunc("/.export-stats", s.serveExportStats)
+	mux.HandleFunc("/.help", s.serveHelp)
+	mux.HandleFunc("/.opensearch", s.serveOpenSearch)
+	mux.HandleFunc("/.all", s.serveAll)
+	mux.HandleFunc("/.delete/", s.serveDelete)
+	mux.HandleFunc("/.search", s.serveSearch)
 	mux.Handle("/.metrics", promhttp.Handler())
 	mux.Handle("/.static/", http.StripPrefix("/.", http.FileServer(http.FS(embeddedFS))))
 
@@ -556,24 +711,24 @@ func serveHandler() http.Handler {
 		// Serve go links directly without passing through the ServeMux,
 		// which sometimes modifies the request URL path, which we don't want.
 		if !strings.HasPrefix(r.URL.Path, "/.") {
-			serveGo(w, r)
+			s.serveGo(w, r)
 			return
 		}
 		mux.ServeHTTP(w, r)
 	})
 }
 
-func serveHome(w http.ResponseWriter, r *http.Request, short string) {
+func (s *Server) serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	var clicks []visitData
 
-	stats.mu.Lock()
-	for short, numClicks := range stats.clicks {
+	s.stats.mu.Lock()
+	for short, numClicks := range s.stats.clicks {
 		clicks = append(clicks, visitData{
 			Short:     short,
 			NumClicks: numClicks,
 		})
 	}
-	stats.mu.Unlock()
+	s.stats.mu.Unlock()
 
 	sort.Slice(clicks, func(i, j int) bool {
 		if clicks[i].NumClicks != clicks[j].NumClicks {
@@ -586,9 +741,9 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	}
 
 	var long string
-	if short != "" && localClient != nil {
+	if short != "" && s.lc != nil {
 		// if a peer exists with the short name, suggest it as the long URL
-		st, err := localClient.Status(r.Context())
+		st, err := s.lc.Status(r.Context())
 		if err == nil {
 			for _, p := range st.Peer {
 				if host, _, ok := strings.Cut(p.DNSName, "."); ok && host == short {
@@ -599,52 +754,52 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		}
 	}
 
-	cu, err := currentUser(r)
+	cu, err := s.currentUser(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	homeTmpl.Execute(w, homeData{
+	s.homeTmpl.Execute(w, homeData{
 		Short:    short,
 		Long:     long,
 		Clicks:   clicks,
-		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
-		ReadOnly: *readonly,
+		XSRF:     xsrftoken.Generate(s.xsrfKey, cu.login, newShortName),
+		ReadOnly: s.readonly,
 		User:     cu.login,
 	})
 }
 
-func serveAll(w http.ResponseWriter, _ *http.Request) {
-	if err := flushStats(); err != nil {
+func (s *Server) serveAll(w http.ResponseWriter, _ *http.Request) {
+	if err := s.FlushStats(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	links, err := db.LoadAll()
+	links, err := s.db.LoadAll()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	searchTmpl.Execute(w, searchResults(links))
+	s.searchTmpl.Execute(w, s.searchResults(links))
 }
 
-func serveHelp(w http.ResponseWriter, _ *http.Request) {
-	helpTmpl.Execute(w, nil)
+func (s *Server) serveHelp(w http.ResponseWriter, _ *http.Request) {
+	s.helpTmpl.Execute(w, nil)
 }
 
-func serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/opensearchdescription+xml")
-	opensearchTmpl.Execute(w, nil)
+	s.opensearchTmpl.Execute(w, nil)
 }
 
-func serveGo(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveGo(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		switch r.Method {
 		case "GET":
-			serveHome(w, r, "")
+			s.serveHome(w, r, "")
 		case "POST":
-			serveSave(w, r)
+			s.serveSave(w, r)
 		}
 		return
 	}
@@ -657,20 +812,20 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	link, err := db.Load(short)
+	link, err := s.db.Load(short)
 	if errors.Is(err, fs.ErrNotExist) {
 		// Trim common punctuation from the end and try again.
 		// This catches auto-linking and copy/paste issues that include punctuation.
-		if s := strings.TrimRight(short, ".,()[]{}"); short != s {
-			short = s
-			link, err = db.Load(short)
+		if trimmed := strings.TrimRight(short, ".,()[]{}"); short != trimmed {
+			short = trimmed
+			link, err = s.db.Load(short)
 		}
 	}
 
 	if errors.Is(err, fs.ErrNotExist) {
 		clickNotFound.WithLabelValues(short).Inc()
 		w.WriteHeader(http.StatusNotFound)
-		serveHome(w, r, short)
+		s.serveHome(w, r, short)
 		return
 	}
 	if err != nil {
@@ -682,18 +837,18 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 
 	clickCounter.WithLabelValues(link.Short).Inc()
 
-	stats.mu.Lock()
-	if stats.clicks == nil {
-		stats.clicks = make(ClickStats)
+	s.stats.mu.Lock()
+	if s.stats.clicks == nil {
+		s.stats.clicks = make(ClickStats)
 	}
-	stats.clicks[link.Short]++
-	if stats.dirty == nil {
-		stats.dirty = make(ClickStats)
+	s.stats.clicks[link.Short]++
+	if s.stats.dirty == nil {
+		s.stats.dirty = make(ClickStats)
 	}
-	stats.dirty[link.Short]++
-	stats.mu.Unlock()
+	s.stats.dirty[link.Short]++
+	s.stats.mu.Unlock()
 
-	cu, _ := currentUser(r)
+	cu, _ := s.currentUser(r)
 	env := expandEnv{Now: time.Now().UTC(), Path: remainder, user: cu.login, query: r.URL.Query()}
 	target, err := expandLink(link.Long, env)
 	if err != nil {
@@ -726,10 +881,10 @@ type detailData struct {
 	AlreadyExists bool
 }
 
-func serveDetail(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveDetail(w http.ResponseWriter, r *http.Request) {
 	short := strings.TrimPrefix(r.URL.Path, "/.detail/")
 
-	link, err := db.Load(short)
+	link, err := s.db.Load(short)
 	if errors.Is(err, fs.ErrNotExist) {
 		http.NotFound(w, r)
 		return
@@ -753,13 +908,13 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cu, err := currentUser(r)
+	cu, err := s.currentUser(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	canEdit := canEditLink(r.Context(), link, cu)
-	ownerExists, err := userExists(r.Context(), link.Owner)
+	canEdit := s.canEditLink(r.Context(), link, cu)
+	ownerExists, err := s.userExists(r.Context(), link.Owner)
 	if err != nil {
 		log.Printf("looking up tailnet user %q: %v", link.Owner, err)
 	}
@@ -767,7 +922,7 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 	data := detailData{
 		Link:     link,
 		Editable: canEdit,
-		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, link.Short),
+		XSRF:     xsrftoken.Generate(s.xsrfKey, cu.login, link.Short),
 	}
 	if r.URL.Query().Get("exists") == "1" {
 		data.AlreadyExists = true
@@ -776,25 +931,25 @@ func serveDetail(w http.ResponseWriter, r *http.Request) {
 		data.Link.Owner = cu.login
 	}
 
-	detailTmpl.Execute(w, data)
+	s.detailTmpl.Execute(w, data)
 }
 
 // serveSearch handles requests to /.search?q={query}, where {query} can currently only be
 // the owner formated like "owner:<email>".
-func serveSearch(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	owner, found := strings.CutPrefix(query, "owner:")
 	if !found {
 		http.Error(w, `search only supports "owner:<email>"`, http.StatusBadRequest)
 		return
 	}
-	links, err := db.GetLinksByOwner(owner)
+	links, err := s.db.GetLinksByOwner(owner)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	searchTmpl.Execute(w, searchResults(links))
+	s.searchTmpl.Execute(w, s.searchResults(links))
 }
 
 type expandEnv struct {
@@ -879,8 +1034,6 @@ func expandLink(long string, env expandEnv) (*url.URL, error) {
 	return u, nil
 }
 
-func devMode() bool { return *dev != "" }
-
 const peerCapName = "tailscale.com/cap/golink"
 
 type capabilities struct {
@@ -892,7 +1045,7 @@ type user struct {
 	isAdmin bool
 }
 
-// currentUser returns the Tailscale user associated with the request.
+// defaultCurrentUser returns the Tailscale user associated with the request.
 // In most cases, this will be the user that owns the device that made the request.
 // For tagged devices, the value "tagged-devices" is returned.
 // If the user can't be determined (such as requests coming through a subnet router),
@@ -901,8 +1054,8 @@ type user struct {
 // When running as a Tailscale Service, authentication is handled via HTTP headers
 // automatically injected by tsnet's internal proxy (Tailscale-User-Login, etc.).
 // For regular mode, authentication uses WhoIs with the connection's RemoteAddr.
-var currentUser = func(r *http.Request) (user, error) {
-	if devMode() {
+func (s *Server) defaultCurrentUser(r *http.Request) (user, error) {
+	if s.dev {
 		return user{login: "foo@example.com"}, nil
 	}
 
@@ -910,17 +1063,17 @@ var currentUser = func(r *http.Request) (user, error) {
 	// by tsnet's internal proxy. Restrict this authentication check to cases
 	// when we are running in service mode, and the immediate client connection is
 	// on loopback.
-	if trustIdentityHeaders(r) {
-		headerUser := extractUserFromHeaders(r)
+	if s.trustIdentityHeaders(r) {
+		headerUser := s.extractUserFromHeaders(r)
 		if headerUser.login != "" {
 			return headerUser, nil
 		}
 	}
 
 	// Regular mode: use WhoIs with RemoteAddr
-	whois, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
+	whois, err := s.lc.WhoIs(r.Context(), r.RemoteAddr)
 	if err != nil {
-		if *allowUnknownUsers {
+		if s.allowUnknownUsers {
 			// Don't report the error if we are allowing unknown users.
 			return user{}, nil
 		}
@@ -936,19 +1089,21 @@ var currentUser = func(r *http.Request) (user, error) {
 	return user{login: login}, nil
 }
 
-// trustIdentityHeaders returns whether we should trust identity headers injected by tsnet's internal proxy.
-var trustIdentityHeaders = func(r *http.Request) bool {
+// defaultTrustIdentityHeaders returns whether we should trust identity headers
+// injected by tsnet's internal proxy.
+func (s *Server) defaultTrustIdentityHeaders(r *http.Request) bool {
 	remoteHost := r.RemoteAddr
 	if host, _, err := net.SplitHostPort(remoteHost); err == nil {
 		remoteHost = host
 	}
 	remoteIP := net.ParseIP(remoteHost)
 
-	return *serviceName != "" && remoteIP != nil && remoteIP.IsLoopback()
+	return s.serviceName != "" && remoteIP != nil && remoteIP.IsLoopback()
 }
 
-// extractUserFromHeaders extracts the user from HTTP headers injected by tsnet's internal proxy.
-var extractUserFromHeaders = func(r *http.Request) user {
+// defaultExtractUserFromHeaders extracts the user from HTTP headers injected
+// by tsnet's internal proxy.
+func (s *Server) defaultExtractUserFromHeaders(r *http.Request) user {
 	if tsLogin := r.Header.Get("Tailscale-User-Login"); tsLogin != "" {
 		// Look for a peer from x-forwarded-for header. We'll use that for the
 		// whois/capmap lookup first.
@@ -964,7 +1119,7 @@ var extractUserFromHeaders = func(r *http.Request) user {
 				return user{login: tsLogin}
 			}
 
-			whois, err := whoisFunc(r.Context(), ip)
+			whois, err := s.whoisFunc(r.Context(), ip)
 
 			if err != nil {
 				log.Printf("WhoIs lookup for IP %q: %v", ip, err)
@@ -988,24 +1143,19 @@ var extractUserFromHeaders = func(r *http.Request) user {
 	return user{}
 }
 
-// whoisFunc is a variable so it can be overridden in tests. By default, it calls localClient.WhoIs.
-var whoisFunc = func(ctx context.Context, ip string) (*apitype.WhoIsResponse, error) {
-	return localClient.WhoIs(ctx, ip)
-}
-
 // userExists returns whether a user exists with the specified login in the current tailnet.
-func userExists(ctx context.Context, login string) (bool, error) {
+func (s *Server) userExists(ctx context.Context, login string) (bool, error) {
 	const userTaggedDevices = "tagged-devices" // owner of tagged devices
 
 	if login == userTaggedDevices {
 		return false, nil
 	}
 
-	if devMode() {
+	if s.dev {
 		// in dev mode, just assume the user exists
 		return true, nil
 	}
-	st, err := localClient.Status(ctx)
+	st, err := s.lc.Status(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -1022,8 +1172,8 @@ func userExists(ctx context.Context, login string) (bool, error) {
 
 var reShortName = regexp.MustCompile(`^\w[\w\-\.]*$`)
 
-func serveDelete(w http.ResponseWriter, r *http.Request) {
-	if *readonly {
+func (s *Server) serveDelete(w http.ResponseWriter, r *http.Request) {
+	if s.readonly {
 		http.Error(w, "golink is in read-only mode", http.StatusMethodNotAllowed)
 		return
 	}
@@ -1033,19 +1183,19 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cu, err := currentUser(r)
+	cu, err := s.currentUser(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	link, err := db.Load(short)
+	link, err := s.db.Load(short)
 	if errors.Is(err, fs.ErrNotExist) {
 		http.NotFound(w, r)
 		return
 	}
 
-	if !canEditLink(r.Context(), link, cu) {
+	if !s.canEditLink(r.Context(), link, cu) {
 		http.Error(w, fmt.Sprintf("cannot delete link owned by %q", link.Owner), http.StatusForbidden)
 		return
 	}
@@ -1055,29 +1205,29 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 	// want to enable deletion via CLI and to honor allowUnknownUsers for
 	// deletion, we could change the below to a call to isRequestAuthorized. For
 	// now, always require the XSRF token, thus maintaining the status quo.
-	if !xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, cu.login, link.Short) {
+	if !xsrftoken.Valid(r.PostFormValue("xsrf"), s.xsrfKey, cu.login, link.Short) {
 		http.Error(w, "invalid XSRF token", http.StatusBadRequest)
 		return
 	}
 
-	if err := db.Delete(short); err != nil {
+	if err := s.db.Delete(short); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	deleteLinkStats(link)
+	s.deleteLinkStats(link)
 
-	deleteTmpl.Execute(w, deleteData{
+	s.deleteTmpl.Execute(w, deleteData{
 		Short: link.Short,
 		Long:  link.Long,
-		XSRF:  xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+		XSRF:  xsrftoken.Generate(s.xsrfKey, cu.login, newShortName),
 	})
 }
 
 // serveSave handles requests to save or update a Link.  Both short name and
 // long URL are validated for proper format. Existing links may only be updated
 // by their owner.
-func serveSave(w http.ResponseWriter, r *http.Request) {
-	if *readonly {
+func (s *Server) serveSave(w http.ResponseWriter, r *http.Request) {
+	if s.readonly {
 		http.Error(w, "golink is in read-only mode", http.StatusMethodNotAllowed)
 		return
 	}
@@ -1095,19 +1245,19 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cu, err := currentUser(r)
+	cu, err := s.currentUser(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	link, err := db.Load(short)
+	link, err := s.db.Load(short)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if !canEditLink(r.Context(), link, cu) {
+	if !s.canEditLink(r.Context(), link, cu) {
 		http.Error(w, fmt.Sprintf("cannot update link owned by %q", link.Owner), http.StatusForbidden)
 		return
 	}
@@ -1123,8 +1273,8 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		tokenShortName = link.Short
 	}
 
-	if !isRequestAuthorized(r, cu, tokenShortName) {
-		if link != nil && isRequestAuthorized(r, cu, newShortName) {
+	if !s.isRequestAuthorized(r, cu, tokenShortName) {
+		if link != nil && s.isRequestAuthorized(r, cu, newShortName) {
 			// The user submitted from the home page create form but the link
 			// already exists. Redirect to the detail page so they can edit it
 			// intentionally rather than accidentally overwriting it.
@@ -1138,7 +1288,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	// allow transferring ownership to valid users. If empty, set owner to current user.
 	owner := r.FormValue("owner")
 	if owner != "" {
-		exists, err := userExists(r.Context(), owner)
+		exists, err := s.userExists(r.Context(), owner)
 		if err != nil {
 			log.Printf("looking up tailnet user %q: %v", owner, err)
 		}
@@ -1163,13 +1313,13 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	link.Long = long
 	link.LastEdit = now
 	link.Owner = owner
-	if err := db.Save(link); err != nil {
+	if err := s.db.Save(link); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if acceptHTML(r) {
-		successTmpl.Execute(w, homeData{Short: short})
+		s.successTmpl.Execute(w, homeData{Short: short})
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(link)
@@ -1183,8 +1333,8 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 // canEditLink returns whether the specified user has permission to edit link.
 // Admin users can edit all links.
 // Non-admin users can only edit their own links or links without an active owner.
-func canEditLink(ctx context.Context, link *Link, u user) bool {
-	if *readonly {
+func (s *Server) canEditLink(ctx context.Context, link *Link, u user) bool {
+	if s.readonly {
 		return false
 	}
 	if link == nil || link.Owner == "" {
@@ -1196,7 +1346,7 @@ func canEditLink(ctx context.Context, link *Link, u user) bool {
 		return true
 	}
 
-	owned, err := userExists(ctx, link.Owner)
+	owned, err := s.userExists(ctx, link.Owner)
 	if err != nil {
 		log.Printf("looking up tailnet user %q: %v", link.Owner, err)
 	}
@@ -1207,13 +1357,13 @@ func canEditLink(ctx context.Context, link *Link, u user) bool {
 // serveExport prints a snapshot of the link database. Links are JSON encoded
 // and printed one per line. This format is used to restore link snapshots on
 // startup.
-func serveExport(w http.ResponseWriter, _ *http.Request) {
-	if err := flushStats(); err != nil {
+func (s *Server) serveExport(w http.ResponseWriter, _ *http.Request) {
+	if err := s.FlushStats(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	links, err := db.LoadAll()
+	links, err := s.db.LoadAll()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1233,13 +1383,13 @@ func serveExport(w http.ResponseWriter, _ *http.Request) {
 //
 // Stats are printed in CSV format with three columns: link ID, UNIX timestamp, and click count.
 // Each stat line represents the number of clicks in the previous minute.
-func serveExportStats(w http.ResponseWriter, _ *http.Request) {
-	if err := flushStats(); err != nil {
+func (s *Server) serveExportStats(w http.ResponseWriter, _ *http.Request) {
+	if err := s.FlushStats(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	rows, err := db.db.Query("SELECT ID, Created, Clicks FROM Stats ORDER BY Created, ID")
+	rows, err := s.db.db.Query("SELECT ID, Created, Clicks FROM Stats ORDER BY Created, ID")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1265,8 +1415,10 @@ func serveExportStats(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func restoreLastSnapshot() error {
-	bs := bufio.NewScanner(bytes.NewReader(LastSnapshot))
+// restoreSnapshot loads a data snapshot (as returned by the /.export handler)
+// into the database, skipping links that already exist.
+func (s *Server) restoreSnapshot(snapshot []byte) error {
+	bs := bufio.NewScanner(bytes.NewReader(snapshot))
 	var restored int
 	for bs.Scan() {
 		link := new(Link)
@@ -1276,55 +1428,55 @@ func restoreLastSnapshot() error {
 		if link.Short == "" {
 			continue
 		}
-		_, err := db.Load(link.Short)
+		_, err := s.db.Load(link.Short)
 		if err == nil {
 			continue // exists
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		if err := db.Save(link); err != nil {
+		if err := s.db.Save(link); err != nil {
 			return err
 		}
 		restored++
 	}
-	if restored > 0 && *verbose {
+	if restored > 0 && s.verbose {
 		log.Printf("Restored %v links.", restored)
 	}
 	return bs.Err()
 }
 
-func resolveLink(link *url.URL) (*url.URL, error) {
+func (s *Server) resolveLink(link *url.URL) (*url.URL, error) {
 	path := link.Path
 
 	// if link was specified as "go/name", it will parse with no scheme or host.
 	// Trim "go" prefix from beginning of path.
 	if link.Host == "" {
-		path = strings.TrimPrefix(path, *hostname)
+		path = strings.TrimPrefix(path, s.hostname)
 	}
 
 	short, remainder, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
-	l, err := db.Load(short)
+	l, err := s.db.Load(short)
 	if err != nil {
 		return nil, err
 	}
 	dst, err := expandLink(l.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
 	if err == nil {
-		if dst.Host == "" || dst.Host == *hostname {
-			dst, err = resolveLink(dst)
+		if dst.Host == "" || dst.Host == s.hostname {
+			dst, err = s.resolveLink(dst)
 		}
 	}
 	return dst, err
 }
 
-func isRequestAuthorized(r *http.Request, u user, short string) bool {
-	if *allowUnknownUsers {
+func (s *Server) isRequestAuthorized(r *http.Request, u user, short string) bool {
+	if s.allowUnknownUsers {
 		return true
 	}
 	if r.Header.Get(secHeaderName) != "" {
 		return true
 	}
 
-	return xsrftoken.Valid(r.PostFormValue("xsrf"), xsrfKey, u.login, short)
+	return xsrftoken.Valid(r.PostFormValue("xsrf"), s.xsrfKey, u.login, short)
 }
 
 // parseAdvertiseTags parses a comma-separated list of ACL tags.

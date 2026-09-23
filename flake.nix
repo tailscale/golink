@@ -159,7 +159,8 @@
                 in
                 ''
                   ${optionalString (cfg.tailscaleAuthKeyFile != null) ''
-                    export TS_AUTHKEY="$(head -n1 ${escapeShellArg cfg.tailscaleAuthKeyFile})"
+                    TS_AUTHKEY="$(head -n1 ${escapeShellArg cfg.tailscaleAuthKeyFile})"
+                    export TS_AUTHKEY
                   ''}
 
                   ${cfg.package}/bin/golink ${concatStringsSep " " args}

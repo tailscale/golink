@@ -98,6 +98,12 @@ func TestServeGo(t *testing.T) {
 			wantLink:   "http://who/http://host",
 		},
 		{
+			name:       "simple link with percent in path",
+			link:       "/who/100%25",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/100%25",
+		},
+		{
 			name:       "simple link, trailing period",
 			link:       "/who.",
 			wantStatus: http.StatusFound,
@@ -516,6 +522,18 @@ func TestExpandLink(t *testing.T) {
 			long:      "http://host.com/foo%2f/bar",
 			remainder: "extra",
 			want:      "http://host.com/foo%2f/bar/extra",
+		},
+		{
+			name:      "remainder-escapes-percent",
+			long:      "http://host.com/foo",
+			remainder: "100%",
+			want:      "http://host.com/foo/100%25",
+		},
+		{
+			name:      "remainder-escapes-query-and-fragment-chars",
+			long:      "http://host.com/foo/",
+			remainder: "a?b#c/d e",
+			want:      "http://host.com/foo/a%3Fb%23c/d%20e",
 		},
 		{
 			name:      "remainder-insert-slash",

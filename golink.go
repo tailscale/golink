@@ -999,7 +999,15 @@ func regexMatch(pattern string, s string) bool {
 // env.Path to long.
 func expandLink(long string, env expandEnv) (*url.URL, error) {
 	if !strings.Contains(long, "{{") {
-		// default behavior is to append remaining path to long URL
+		// default behavior is to append remaining path to long URL.
+		// The remainder is decoded already, so escape each segment to keep
+		// characters such as "%", "?" and "#" from being reinterpreted as
+		// URL syntax.
+		segs := strings.Split(env.Path, "/")
+		for i, seg := range segs {
+			segs[i] = url.PathEscape(seg)
+		}
+		env.Path = strings.Join(segs, "/")
 		if strings.HasSuffix(long, "/") {
 			long += "{{.Path}}"
 		} else {

@@ -889,6 +889,10 @@ func (s *Server) serveDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if short != link.Short {
 		// redirect to canonical short name
 		http.Redirect(w, r, "/.detail/"+link.Short, http.StatusFound)
@@ -1192,6 +1196,10 @@ func (s *Server) serveDelete(w http.ResponseWriter, r *http.Request) {
 	link, err := s.db.Load(short)
 	if errors.Is(err, fs.ErrNotExist) {
 		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

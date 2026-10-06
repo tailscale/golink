@@ -880,6 +880,111 @@ func TestServeSearch(t *testing.T) {
 	}
 }
 
+func TestParseSearchInput(t *testing.T) {
+	tests := []struct {
+		name            string
+		raw             string
+		wantShortQuery  string
+		wantPath        string
+		wantQuery       url.Values
+		wantIncludeLong bool
+		wantOwner       string
+	}{
+		{name: "empty", raw: ""},
+		{name: "plain", raw: "foo", wantShortQuery: "foo"},
+		{name: "leading whitespace", raw: "   foo", wantShortQuery: "foo"},
+		{
+			name:           "short + path",
+			raw:            "foo/bar",
+			wantShortQuery: "foo",
+			wantPath:       "bar",
+		},
+		{
+			name:           "short + nested path",
+			raw:            "foo/bar/baz",
+			wantShortQuery: "foo",
+			wantPath:       "bar/baz",
+		},
+		{
+			name:           "short + query",
+			raw:            "foo?x=1",
+			wantShortQuery: "foo",
+			wantQuery:      url.Values{"x": []string{"1"}},
+		},
+		{
+			name:           "short + path + query",
+			raw:            "foo/bar/baz?x=1&y=2",
+			wantShortQuery: "foo",
+			wantPath:       "bar/baz",
+			wantQuery:      url.Values{"x": []string{"1"}, "y": []string{"2"}},
+		},
+		{
+			name:            "question-mark prefix toggles includeLong",
+			raw:             "?docs",
+			wantShortQuery:  "docs",
+			wantIncludeLong: true,
+		},
+		{
+			name:            "question-mark prefix with whitespace",
+			raw:             "  ?docs",
+			wantShortQuery:  "docs",
+			wantIncludeLong: true,
+		},
+		{
+			name:            "includeLong + path + query",
+			raw:             "?foo/bar?x=1",
+			wantShortQuery:  "foo",
+			wantPath:        "bar",
+			wantQuery:       url.Values{"x": []string{"1"}},
+			wantIncludeLong: true,
+		},
+		{
+			name:      "owner filter only",
+			raw:       "owner:a@b.com",
+			wantOwner: "a@b.com",
+		},
+		{
+			name:           "owner filter + query",
+			raw:            "owner:a@b.com deploy",
+			wantShortQuery: "deploy",
+			wantOwner:      "a@b.com",
+		},
+		{
+			name:            "owner filter + includeLong",
+			raw:             "owner:a@b.com ?docs",
+			wantShortQuery:  "docs",
+			wantIncludeLong: true,
+			wantOwner:       "a@b.com",
+		},
+		{
+			name:           "unknown filter token is treated as text",
+			raw:            "tag:infra",
+			wantShortQuery: "tag:infra",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseSearchInput(tt.raw)
+			if got.ShortQuery != tt.wantShortQuery {
+				t.Errorf("ShortQuery = %q, want %q", got.ShortQuery, tt.wantShortQuery)
+			}
+			if got.Path != tt.wantPath {
+				t.Errorf("Path = %q, want %q", got.Path, tt.wantPath)
+			}
+			if got.IncludeLong != tt.wantIncludeLong {
+				t.Errorf("IncludeLong = %v, want %v", got.IncludeLong, tt.wantIncludeLong)
+			}
+			if !cmp.Equal(url.Values(got.Query), tt.wantQuery) {
+				t.Errorf("Query = %v, want %v", got.Query, tt.wantQuery)
+			}
+			if got.Filters.Owner != tt.wantOwner {
+				t.Errorf("Filters.Owner = %q, want %q", got.Filters.Owner, tt.wantOwner)
+			}
+		})
+	}
+}
+
 func TestSearchResults(t *testing.T) {
 	s := newTestServer(t)
 	s.stats.mu.Lock()

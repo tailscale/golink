@@ -1,0 +1,218 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * golink search combobox and search-page styles. Plain hand-written CSS (no
+ * @apply) in the components layer so Tailwind utilities can still override them
+ * on a given element. (.sr-only is Tailwind's own utility; don't redefine it.)
+ */
+@layer components {
+  .gl-header-top {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .gl-header-tagline {
+    margin-top: 0.25rem;
+  }
+
+  .gl-search {
+    position: relative;
+    flex: 0 1 200px;
+    width: 200px;
+    min-width: 0;
+    max-width: 200px;
+    margin: 0;
+  }
+
+  .gl-search:focus-within {
+    flex-basis: 560px;
+    width: min(560px, 100%);
+    max-width: 560px;
+  }
+
+  .gl-search-input {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid rgb(218 214 213);
+    border-radius: 0.375rem;
+    background-color: #fff;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    box-sizing: border-box;
+  }
+
+  .gl-search-input::placeholder {
+    color: rgb(112 110 109);
+    opacity: 1;
+    text-align: left;
+  }
+
+  .gl-search-input[aria-expanded="true"]::placeholder {
+    color: transparent;
+  }
+
+  .gl-search-input:focus {
+    outline: 2px solid rgba(63, 93, 179, 0.4);
+    outline-offset: 0;
+    border-color: rgba(63, 93, 179, 1);
+  }
+
+  .gl-search-listbox {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    background: #fff;
+    border: 1px solid rgb(218 214 213);
+    border-radius: 0.375rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    max-height: min(82vh, calc(100dvh - 1rem));
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    z-index: 50;
+  }
+
+  .gl-search-listbox[hidden] {
+    display: none;
+  }
+
+  .gl-search-option {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid rgb(238 235 234);
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .gl-search-option:last-child {
+    border-bottom: 0;
+  }
+
+  .gl-search-option.is-active,
+  .gl-search-option[aria-selected="true"] {
+    background-color: #e9eef9;
+  }
+
+  .gl-search-short {
+    font-weight: 600;
+    color: #111827;
+  }
+
+  .gl-search-rendered {
+    font-size: 0.85rem;
+    color: rgb(112 110 109);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .gl-search mark {
+    background: transparent;
+    color: rgb(63 93 179);
+    font-weight: 700;
+    padding: 0;
+  }
+
+  .gl-search-tip {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid rgb(238 235 234);
+    background-color: rgb(247 245 244);
+  }
+
+  .gl-search-tip:last-child {
+    border-bottom: 0;
+  }
+
+  .gl-search-tip-title {
+    display: block;
+    font-weight: 500;
+    font-size: 0.8rem;
+    color: rgb(97 95 94);
+  }
+
+  .gl-search-tip-text {
+    display: block;
+    font-size: 0.78rem;
+    color: rgb(125 123 122);
+    margin-top: 0.12rem;
+    line-height: 1.35;
+  }
+
+  .gl-search-tip code {
+    font-size: 0.76rem;
+  }
+
+  /* The "Full results" footer is a role=option like other suggestions,
+     so it inherits .gl-search-option padding/hover, but we give it a
+     subtle visual separator and a muted default background so it reads
+     as a secondary action. */
+  .gl-search-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    border-top: 1px solid rgb(238 235 234);
+    background-color: rgb(247 245 244);
+    text-align: left;
+    font-size: 0.85rem;
+    color: rgb(63 93 179);
+  }
+
+  .gl-search-footer .gl-search-more {
+    font-weight: 600;
+  }
+
+  @media (max-width: 640px) {
+    .gl-search,
+    .gl-search:focus-within {
+      flex-basis: 100%;
+      width: 100%;
+      max-width: none;
+    }
+  }
+
+  /* Input on the server-rendered /.search page. Similar look to the
+     header combobox but full-width and free of listbox chrome. */
+  .gl-search-page-form {
+    margin: 0 0 1rem 0;
+    max-width: 560px;
+  }
+
+  .gl-search-page-input {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid rgb(218 214 213);
+    border-radius: 0.375rem;
+    background-color: #fff;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    box-sizing: border-box;
+  }
+
+  .gl-search-page-input:focus {
+    outline: 2px solid rgba(63, 93, 179, 0.4);
+    outline-offset: 0;
+    border-color: rgba(63, 93, 179, 1);
+  }
+
+  /* Wrapped template text on /.search rows. Template strings can be very long
+     and include no natural break points, so allow both normal wrapping and
+     forced token breaks to keep them inside the row. */
+  .gl-search-template-line {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .gl-search-template-code {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+}

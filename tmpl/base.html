@@ -8,11 +8,37 @@
   <link rel="icon" href="/.static/favicon.png">
   <link rel="icon" href="/.static/favicon.svg">
 </head>
-<body class="flex flex-col min-h-screen">
+<body class="flex flex-col min-h-screen tabular-nums">
   <div class="bg-gray-100 border-b border-gray-200 pt-4 pb-2 mb-6">
-    <header class="container mx-auto px-4">
-      <h1 class="text-2xl font-bold pb-1"><a href="/">{{go}}/</a></h1>
-      A private shortlink service for your tailnet
+    <header class="container mx-auto px-4 gl-header">
+      <div class="gl-header-top">
+        <h1 class="text-2xl font-bold pb-1"><a href="/">{{go}}/</a></h1>
+        {{/*
+          Search combobox. Server-rendered form (GET /.search) works with
+          JS disabled; search.js progressively enhances it into a
+          WAI-ARIA combobox with a listbox popup.
+        */}}
+        <form class="gl-search" method="GET" action="/.search" role="search">
+          <label for="gl-search-input" class="sr-only">Search links</label>
+          <input
+            type="search"
+            name="q"
+            id="gl-search-input"
+            class="gl-search-input"
+            placeholder="..."
+            autocomplete="off"
+            spellcheck="false"
+            role="combobox"
+            aria-expanded="false"
+            aria-controls="gl-search-listbox"
+            aria-autocomplete="list"
+            aria-activedescendant=""
+            aria-label="Search links">
+          <ul id="gl-search-listbox" class="gl-search-listbox" role="listbox" aria-label="Link suggestions" hidden></ul>
+          <div id="gl-search-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+        </form>
+      </div>
+      <div class="gl-header-tagline">A private shortlink service for your tailnet</div>
     </header>
   </div>
 
@@ -38,4 +64,5 @@
       </a>
     </div>
   </footer>
+  <script src="/.static/search.js" defer></script>
 </html>

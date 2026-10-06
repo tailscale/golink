@@ -939,6 +939,91 @@ func (s *Server) serveDetail(w http.ResponseWriter, r *http.Request) {
 	s.detailTmpl.Execute(w, data)
 }
 
+// searchFilters holds the structured filter tokens parsed off the front of a
+// search query. A zero searchFilters means no filters were given.
+type searchFilters struct {
+	// Owner, if non-empty, restricts results to links owned by this
+	// address. It is matched case-insensitively (see [SQLiteDB.SearchShort]).
+	Owner string
+}
+
+// searchInput is the parsed form of a raw search query string.
+//
+// Inputs mirror the redirect path taken by serveGo/resolveLink so that the
+// preview shown to the user matches what would actually happen on click.
+//
+// Examples:
+//
+//	"foo"                     -> {ShortQuery: "foo"}
+//	"foo/bar"                 -> {ShortQuery: "foo", Path: "bar"}
+//	"foo/bar/baz?x=1"         -> {ShortQuery: "foo", Path: "bar/baz", Query: {x: [1]}}
+//	"?docs"                   -> {ShortQuery: "docs", IncludeLong: true}
+//	"  ?foo/bar"              -> {ShortQuery: "foo", Path: "bar", IncludeLong: true}
+//	"owner:a@b.com"           -> {Filters: {Owner: "a@b.com"}}
+//	"owner:a@b.com deploy"    -> {Filters: {Owner: "a@b.com"}, ShortQuery: "deploy"}
+type searchInput struct {
+	// ShortQuery is the text the fuzzy matcher should match against the
+	// link short names.
+	ShortQuery string
+	// Path is the remaining path after the short name, if any.
+	// Corresponds to env.Path in [expandLink].
+	Path string
+	// Query is the URL query parameters parsed off the end of the input.
+	// Corresponds to env.query in [expandLink].
+	Query url.Values
+	// IncludeLong, when true, requests that matching consider both the
+	// short name and the long URL. The user opts into this mode by
+	// prefixing their input with "?".
+	IncludeLong bool
+	// Filters holds structured filter tokens (e.g. "owner:a@b.com") that
+	// were stripped from the front of the input.
+	Filters searchFilters
+}
+
+// parseSearchInput parses a raw search query string. Leading "key:value"
+// filter tokens are stripped first, then the "?" include-long prefix, then any
+// "?k=v" query suffix and "/path" remainder.
+func parseSearchInput(raw string) searchInput {
+	var out searchInput
+	s := strings.TrimLeft(raw, " \t")
+
+	// Consume leading filter tokens. Only "owner:" is recognized as of
+	// 2026-10-06; unknown "key:value" tokens are left in place to be
+	// fuzzy-matched like ordinary text.
+	for {
+		rest, ok := strings.CutPrefix(s, "owner:")
+		if !ok {
+			break
+		}
+		val, tail, _ := strings.Cut(rest, " ")
+		out.Filters.Owner = val
+		s = strings.TrimLeft(tail, " \t")
+	}
+
+	if strings.HasPrefix(s, "?") {
+		out.IncludeLong = true
+		s = s[1:]
+	}
+	// Split off any "?k=v..." query string suffix. The first '?' wins;
+	// that's fine because legitimate short names cannot contain '?' (see
+	// reShortName).
+	if i := strings.IndexByte(s, '?'); i >= 0 {
+		if q, err := url.ParseQuery(s[i+1:]); err == nil {
+			out.Query = q
+		}
+		s = s[:i]
+	}
+	// Split once on '/'. Left side is the short to match against; right
+	// side becomes Path.
+	if i := strings.IndexByte(s, '/'); i >= 0 {
+		out.ShortQuery = s[:i]
+		out.Path = s[i+1:]
+	} else {
+		out.ShortQuery = s
+	}
+	return out
+}
+
 // searchPageData is the data passed to searchTmpl for the server-rendered
 // results page, shared by /.search and /.all.
 type searchPageData struct {
@@ -951,12 +1036,12 @@ type searchPageData struct {
 // the owner formated like "owner:<email>".
 func (s *Server) serveSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
-	owner, found := strings.CutPrefix(query, "owner:")
-	if !found {
+	in := parseSearchInput(query)
+	if in.Filters.Owner == "" {
 		http.Error(w, `search only supports "owner:<email>"`, http.StatusBadRequest)
 		return
 	}
-	links, err := s.db.GetLinksByOwner(owner)
+	links, err := s.db.GetLinksByOwner(in.Filters.Owner)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

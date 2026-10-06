@@ -15,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"html/template"
 	"io/fs"
 	"log"
@@ -518,6 +519,16 @@ func (s *Server) searchResults(links []*Link) []searchResult {
 	return results
 }
 
+// annotateClicks fills in each result's NumClicks from the live in-memory
+// counter (the same source the home page uses), under the stats lock.
+func (s *Server) annotateClicks(results []SearchResult) {
+	s.stats.mu.Lock()
+	defer s.stats.mu.Unlock()
+	for i := range results {
+		results[i].NumClicks = s.stats.clicks[results[i].Short]
+	}
+}
+
 // homeData is the data used by homeTmpl.
 type homeData struct {
 	Short    string
@@ -550,6 +561,38 @@ func (s *Server) tmplFuncs() template.FuncMap {
 				return defaultHostname
 			}
 			return s.hostname
+		},
+		// contains reports whether s contains substr. Exposed for templates.
+		"contains": strings.Contains,
+		// highlight wraps each matched rune in the given string with a <mark>
+		// tag, returning HTML-safe output. Positions are rune indexes (not
+		// byte offsets), mirroring what sahilm/fuzzy returns. It's used by
+		// the search page to emphasize which characters of a short name or
+		// long URL matched the query, matching the autocomplete dropdown
+		// rendering.
+		//
+		// This function must HTML-escape the characters itself since it
+		// returns template.HTML to bypass the engine's default escaping of
+		// the <mark> tags.
+		"highlight": func(s string, positions []int) template.HTML {
+			if len(positions) == 0 {
+				return template.HTML(html.EscapeString(s))
+			}
+			pos := make(map[int]bool, len(positions))
+			for _, p := range positions {
+				pos[p] = true
+			}
+			var b strings.Builder
+			for i, r := range []rune(s) {
+				if pos[i] {
+					b.WriteString("<mark>")
+					b.WriteString(html.EscapeString(string(r)))
+					b.WriteString("</mark>")
+				} else {
+					b.WriteString(html.EscapeString(string(r)))
+				}
+			}
+			return template.HTML(b.String())
 		},
 	}
 }
@@ -781,10 +824,25 @@ func (s *Server) serveAll(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	if err := s.searchTmpl.Execute(w, searchPageData{
-		All:     true,
-		Results: s.searchResults(links),
-	}); err != nil {
+	results := make([]SearchResult, 0, len(links))
+	for _, l := range links {
+		results = append(results, SearchResult{
+			Short:        l.Short,
+			Long:         l.Long,
+			Rendered:     l.Long,
+			Owner:        l.Owner,
+			LastEdit:     l.LastEdit,
+			ShortEscaped: url.PathEscape(l.Short),
+			Target:       "/" + url.PathEscape(l.Short),
+			DetailTarget: "/.detail/" + url.PathEscape(l.Short),
+		})
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Short < results[j].Short
+	})
+	s.annotateClicks(results)
+
+	if err := s.searchTmpl.Execute(w, searchPageData{All: true, Results: results}); err != nil {
 		log.Printf("searchTmpl.Execute: %v", err)
 	}
 }
@@ -1024,11 +1082,79 @@ func parseSearchInput(raw string) searchInput {
 	return out
 }
 
+// SearchResult is a single search result, carrying enough information to
+// render both the textual result row and the link destination a click would
+// follow.
+type SearchResult struct {
+	// Short is the link short name. Used for keyboard navigation (Enter
+	// on this option navigates to go/{Short}{/Path}{?Query}).
+	Short string `json:"short"`
+	// Long is the raw Link.Long field (may be a text/template).
+	Long string `json:"long"`
+	// Rendered is Long expanded through [expandLink] with the current
+	// user, Path, and Query, matching what a real click would resolve
+	// to. On expansion error, Rendered is set to Long unchanged.
+	Rendered string `json:"rendered"`
+	// Owner is the link's owner.
+	Owner string `json:"owner,omitempty"`
+	// LastEdit is when the link was last edited. Used by the filter-only
+	// table listing; omitted from JSON since the autocomplete doesn't use it.
+	LastEdit time.Time `json:"-"`
+	// NumClicks is the link's current click count, read from the live
+	// in-memory counter (the same source the home page uses).
+	NumClicks int `json:"numClicks"`
+	// ShortEscaped is Short pre-escaped for use in a URL path. Exposed
+	// so clients can build target URLs without re-encoding logic.
+	ShortEscaped string `json:"shortEscaped"`
+	// Target is the full path (not absolute URL) a click on this
+	// result should navigate to, preserving the user's Path and Query.
+	// Callers can just set window.location to this value.
+	Target string `json:"target"`
+	// DetailTarget is the path to the link-details page for this
+	// result (/.detail/{short}). Clients use this for Alt+Enter /
+	// Alt+click to jump into the detail/edit page instead of
+	// following the link.
+	DetailTarget string `json:"detailTarget"`
+}
+
+// runSearch performs a search query end-to-end: parse the input, collect
+// matching links, and return the corresponding [SearchResult]s. As of
+// 2026-10-06 only the "owner:<email>" filter resolves; anything else yields
+// no results.
+func (s *Server) runSearch(raw string) (parsed searchInput, results []SearchResult, err error) {
+	in := parseSearchInput(raw)
+	if in.Filters.Owner == "" {
+		return in, nil, nil
+	}
+	links, err := s.db.GetLinksByOwner(in.Filters.Owner)
+	if err != nil {
+		return in, nil, err
+	}
+	sort.Slice(links, func(i, j int) bool {
+		return links[i].Short < links[j].Short
+	})
+	results = make([]SearchResult, 0, len(links))
+	for _, l := range links {
+		results = append(results, SearchResult{
+			Short:        l.Short,
+			Long:         l.Long,
+			Rendered:     l.Long,
+			Owner:        l.Owner,
+			LastEdit:     l.LastEdit,
+			ShortEscaped: url.PathEscape(l.Short),
+			Target:       "/" + url.PathEscape(l.Short),
+			DetailTarget: "/.detail/" + url.PathEscape(l.Short),
+		})
+	}
+	s.annotateClicks(results)
+	return in, results, nil
+}
+
 // searchPageData is the data passed to searchTmpl for the server-rendered
-// results page, shared by /.search and /.all.
+// results page.
 type searchPageData struct {
 	Query   string         // the raw user input
-	Results []searchResult // best-match-first
+	Results []SearchResult // best-match-first
 	All     bool           // true on /.all: list every link
 }
 
@@ -1036,12 +1162,11 @@ type searchPageData struct {
 // the owner formated like "owner:<email>".
 func (s *Server) serveSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
-	in := parseSearchInput(query)
+	in, results, err := s.runSearch(query)
 	if in.Filters.Owner == "" {
 		http.Error(w, `search only supports "owner:<email>"`, http.StatusBadRequest)
 		return
 	}
-	links, err := s.db.GetLinksByOwner(in.Filters.Owner)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1049,7 +1174,7 @@ func (s *Server) serveSearch(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.searchTmpl.Execute(w, searchPageData{
 		Query:   query,
-		Results: s.searchResults(links),
+		Results: results,
 	}); err != nil {
 		log.Printf("searchTmpl.Execute: %v", err)
 	}

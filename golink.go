@@ -1005,6 +1005,11 @@ type searchFilters struct {
 	Owner string
 }
 
+// Empty reports whether no filters are set.
+func (f searchFilters) Empty() bool {
+	return f == searchFilters{}
+}
+
 // searchInput is the parsed form of a raw search query string.
 //
 // Inputs mirror the redirect path taken by serveGo/resolveLink so that the

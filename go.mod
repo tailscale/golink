@@ -5,6 +5,7 @@ go 1.26.6
 require (
 	github.com/google/go-cmp v0.7.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/sahilm/fuzzy v0.1.1
 	golang.org/x/net v0.57.0
 	modernc.org/sqlite v1.39.1
 	tailscale.com v1.102.3

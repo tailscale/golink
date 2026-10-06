@@ -781,6 +781,36 @@ func TestHTTPSRedirectHandlerWithQuery(t *testing.T) {
 	}
 }
 
+func TestServeAll(t *testing.T) {
+	s := newTestServer(t)
+	links := []*Link{
+		{Short: "alpha", Long: "http://alpha/", Owner: "foo@example.com"},
+		{Short: "beta", Long: "http://beta/", Owner: "bar@example.com"},
+	}
+	for _, link := range links {
+		if err := s.db.Save(link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.stats.mu.Lock()
+	s.stats.clicks = ClickStats{"alpha": 42}
+	s.stats.mu.Unlock()
+
+	r := httptest.NewRequest("GET", "/.all", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("serveAll = %d; want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+	for _, s := range []string{"All links", "alpha", "beta", "2 results", "Clicks", "42"} {
+		if !strings.Contains(body, s) {
+			t.Errorf("serveAll body missing %q", s)
+		}
+	}
+}
+
 func TestServeSearch(t *testing.T) {
 	s := newTestServer(t)
 	links := []*Link{
@@ -806,7 +836,7 @@ func TestServeSearch(t *testing.T) {
 			name:            "search by owner with multiple links",
 			owner:           "foo@example.com",
 			wantStatus:      http.StatusOK,
-			wantContains:    []string{"alpha", "beta", "delta", "3 total"},
+			wantContains:    []string{"alpha", "beta", "delta", "3 results"},
 			wantNotContains: []string{"gamma"},
 		},
 		{
@@ -819,7 +849,7 @@ func TestServeSearch(t *testing.T) {
 			name:            "search by owner with single link",
 			owner:           "bar@example.com",
 			wantStatus:      http.StatusOK,
-			wantContains:    []string{"gamma", "1 total"},
+			wantContains:    []string{"gamma", "1 result"},
 			wantNotContains: []string{"alpha", "beta"},
 		},
 	}

@@ -781,7 +781,12 @@ func (s *Server) serveAll(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	s.searchTmpl.Execute(w, s.searchResults(links))
+	if err := s.searchTmpl.Execute(w, searchPageData{
+		All:     true,
+		Results: s.searchResults(links),
+	}); err != nil {
+		log.Printf("searchTmpl.Execute: %v", err)
+	}
 }
 
 func (s *Server) serveHelp(w http.ResponseWriter, _ *http.Request) {
@@ -934,6 +939,14 @@ func (s *Server) serveDetail(w http.ResponseWriter, r *http.Request) {
 	s.detailTmpl.Execute(w, data)
 }
 
+// searchPageData is the data passed to searchTmpl for the server-rendered
+// results page, shared by /.search and /.all.
+type searchPageData struct {
+	Query   string         // the raw user input
+	Results []searchResult // best-match-first
+	All     bool           // true on /.all: list every link
+}
+
 // serveSearch handles requests to /.search?q={query}, where {query} can currently only be
 // the owner formated like "owner:<email>".
 func (s *Server) serveSearch(w http.ResponseWriter, r *http.Request) {
@@ -949,7 +962,12 @@ func (s *Server) serveSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.searchTmpl.Execute(w, s.searchResults(links))
+	if err := s.searchTmpl.Execute(w, searchPageData{
+		Query:   query,
+		Results: s.searchResults(links),
+	}); err != nil {
+		log.Printf("searchTmpl.Execute: %v", err)
+	}
 }
 
 type expandEnv struct {

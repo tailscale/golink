@@ -1108,6 +1108,268 @@ func TestServeSearchHTMLLimit100(t *testing.T) {
 	}
 }
 
+func TestServeSearchJSON(t *testing.T) {
+	s := newTestServer(t)
+	links := []*Link{
+		{Short: "who", Long: "http://who/"},
+		{Short: "wholesale", Long: "http://wholesale/"},
+		{Short: "template", Long: "http://example.com/{{.Path}}"},
+		{Short: "no-path", Long: "http://example.com/path"},
+		{Short: "unrelated", Long: "https://docs.google.com/internal"},
+	}
+	for _, l := range links {
+		if err := s.db.Save(l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.stats.mu.Lock()
+	s.stats.clicks = ClickStats{"who": 7}
+	s.stats.mu.Unlock()
+
+	decode := func(t *testing.T, body string) (shortQuery string, includeLong bool, results []SearchResult) {
+		t.Helper()
+		var payload struct {
+			Query       string         `json:"query"`
+			ShortQuery  string         `json:"shortQuery"`
+			IncludeLong bool           `json:"includeLong"`
+			Results     []SearchResult `json:"results"`
+		}
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatalf("decode JSON: %v\nbody=%s", err, body)
+		}
+		return payload.ShortQuery, payload.IncludeLong, payload.Results
+	}
+
+	do := func(t *testing.T, rawQuery string) (int, string, http.Header) {
+		t.Helper()
+		r := httptest.NewRequest("GET", "/.search?q="+url.QueryEscape(rawQuery), nil)
+		r.Header.Set("Accept", "application/json")
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		return w.Code, w.Body.String(), w.Header()
+	}
+
+	t.Run("simple top-match", func(t *testing.T) {
+		code, body, hdr := do(t, "who")
+		if code != http.StatusOK {
+			t.Fatalf("status = %d; body=%s", code, body)
+		}
+		if ct := hdr.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+			t.Errorf("Content-Type = %q, want application/json", ct)
+		}
+		sq, il, rs := decode(t, body)
+		if sq != "who" || il {
+			t.Errorf("parsed query = (%q, includeLong=%v), want (who, false)", sq, il)
+		}
+		if len(rs) == 0 || rs[0].Short != "who" {
+			t.Errorf("top result = %v, want who first", rs)
+		}
+		if rs[0].Rendered != "http://who/" {
+			t.Errorf("rendered = %q, want http://who/", rs[0].Rendered)
+		}
+		if rs[0].Target != "/who" {
+			t.Errorf("target = %q, want /who", rs[0].Target)
+		}
+		if rs[0].NumClicks != 7 {
+			t.Errorf("numClicks = %d, want 7", rs[0].NumClicks)
+		}
+	})
+
+	t.Run("path and query are forwarded into expandLink and Target", func(t *testing.T) {
+		code, body, _ := do(t, "template/foo?x=1&y=2")
+		if code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", code, body)
+		}
+		_, _, rs := decode(t, body)
+		if len(rs) == 0 || rs[0].Short != "template" {
+			t.Fatalf("top result = %v, want template", rs)
+		}
+		// Rendered should have Path substituted AND the query merged.
+		// Compare via URL parsing because query key order is not fixed.
+		u, err := url.Parse(rs[0].Rendered)
+		if err != nil {
+			t.Fatalf("parse rendered %q: %v", rs[0].Rendered, err)
+		}
+		if u.Path != "/foo" {
+			t.Errorf("rendered path = %q, want /foo (from Path substitution)", u.Path)
+		}
+		gotQ := u.Query()
+		if gotQ.Get("x") != "1" || gotQ.Get("y") != "2" {
+			t.Errorf("rendered query = %v, want x=1 & y=2", gotQ)
+		}
+		// Target preserves user's path and query so click routes through golink.
+		tu, err := url.Parse(rs[0].Target)
+		if err != nil {
+			t.Fatalf("parse target %q: %v", rs[0].Target, err)
+		}
+		if tu.Path != "/template/foo" {
+			t.Errorf("target path = %q, want /template/foo", tu.Path)
+		}
+		if tu.Query().Get("x") != "1" || tu.Query().Get("y") != "2" {
+			t.Errorf("target query = %v, want x=1 & y=2", tu.Query())
+		}
+	})
+
+	t.Run("default path-append behaviour for non-template long (no trailing slash)", func(t *testing.T) {
+		// Long = http://example.com/path, user query = "no-path/extra"
+		// Expect rendered = http://example.com/path/extra.
+		code, body, _ := do(t, "no-path/extra")
+		if code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", code, body)
+		}
+		_, _, rs := decode(t, body)
+		if len(rs) == 0 || rs[0].Short != "no-path" {
+			t.Fatalf("top result = %v", rs)
+		}
+		want := "http://example.com/path/extra"
+		if rs[0].Rendered != want {
+			t.Errorf("rendered = %q, want %q", rs[0].Rendered, want)
+		}
+	})
+
+	t.Run("includeLong prefix", func(t *testing.T) {
+		code, body, _ := do(t, "?google")
+		if code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", code, body)
+		}
+		sq, il, rs := decode(t, body)
+		if !il {
+			t.Errorf("IncludeLong = false, want true")
+		}
+		if sq != "google" {
+			t.Errorf("ShortQuery = %q, want google", sq)
+		}
+		// "unrelated" has "google" in its Long; should appear.
+		found := false
+		for _, r := range rs {
+			if r.Short == "unrelated" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected unrelated in results for ?google: %v", rs)
+		}
+	})
+
+	t.Run("empty query returns empty results", func(t *testing.T) {
+		code, body, _ := do(t, "")
+		if code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", code, body)
+		}
+		_, _, rs := decode(t, body)
+		if len(rs) != 0 {
+			t.Errorf("empty query returned %d results, want 0", len(rs))
+		}
+	})
+
+	t.Run("match positions returned", func(t *testing.T) {
+		_, body, _ := do(t, "wh")
+		_, _, rs := decode(t, body)
+		if len(rs) == 0 {
+			t.Fatalf("no results")
+		}
+		if len(rs[0].ShortMatchedIndexes) != 2 {
+			t.Errorf("ShortMatchedIndexes = %v, want 2 positions", rs[0].ShortMatchedIndexes)
+		}
+		if len(rs[0].LongMatchedIndexes) != 0 {
+			t.Errorf("LongMatchedIndexes = %v, want empty (not includeLong)", rs[0].LongMatchedIndexes)
+		}
+	})
+
+	t.Run("includeLong returns long match positions", func(t *testing.T) {
+		// Short "unrelated" does not contain "example" (no fuzzy match
+		// on short). Long "https://docs.google.com/internal" also
+		// doesn't literally contain "example" so that's a poor test
+		// candidate. Use "unrelated" with query "google": short
+		// has no subsequence match for "google"; long does.
+		_, body, _ := do(t, "?google")
+		_, _, rs := decode(t, body)
+		// Find the "unrelated" entry.
+		var found *SearchResult
+		for i := range rs {
+			if rs[i].Short == "unrelated" {
+				found = &rs[i]
+				break
+			}
+		}
+		if found == nil {
+			t.Fatalf("unrelated not in results: %v", rs)
+		}
+		if len(found.LongMatchedIndexes) == 0 {
+			t.Errorf("LongMatchedIndexes for unrelated = %v; want non-empty", found.LongMatchedIndexes)
+		}
+		if len(found.ShortMatchedIndexes) != 0 {
+			t.Errorf("ShortMatchedIndexes for unrelated = %v; want empty (short didn't match)", found.ShortMatchedIndexes)
+		}
+	})
+}
+
+// TestServeSearchLimitHit verifies that the server reports limitHit
+// when the result set is truncated, and doesn't when it isn't.
+func TestServeSearchLimitHit(t *testing.T) {
+	s := newTestServer(t)
+	// Populate enough matching links to exceed the JSON limit (8) but
+	// not the HTML limit (100).
+	for i := 0; i < 20; i++ {
+		short := fmt.Sprintf("aaa-%02d", i)
+		if err := s.db.Save(&Link{Short: short, Long: "http://ex/"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// JSON should flag limitHit=true (20 > 8).
+	r := httptest.NewRequest("GET", "/.search?q=a", nil)
+	r.Header.Set("Accept", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	var payload struct {
+		LimitHit bool           `json:"limitHit"`
+		Results  []SearchResult `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.LimitHit {
+		t.Errorf("expected limitHit=true for 20 matches at JSON limit 8; got false (%d results)", len(payload.Results))
+	}
+
+	// HTML should NOT flag the limit (20 < 100). Look for the absence
+	// of our "Results truncated" string.
+	r = httptest.NewRequest("GET", "/.search?q=a", nil)
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	body := w.Body.String()
+	if strings.Contains(body, "Results truncated") {
+		t.Errorf("HTML page for 20 matches should not mention truncation; body=%s", body)
+	}
+}
+
+// TestSearchResultHasDetailTarget confirms each result carries the
+// /.detail/{short} URL so the client can honor Alt+Enter.
+func TestSearchResultHasDetailTarget(t *testing.T) {
+	s := newTestServer(t)
+	s.db.Save(&Link{Short: "weird name", Long: "http://ex/"})
+	r := httptest.NewRequest("GET", "/.search?q="+url.QueryEscape("weird"), nil)
+	r.Header.Set("Accept", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	var payload struct {
+		Results []SearchResult `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Results) == 0 {
+		t.Fatal("no results")
+	}
+	got := payload.Results[0].DetailTarget
+	want := "/.detail/weird%20name" // short is path-escaped
+	if got != want {
+		t.Errorf("DetailTarget = %q, want %q", got, want)
+	}
+}
+
 func TestParseAdvertiseTags(t *testing.T) {
 	tests := []struct {
 		name    string

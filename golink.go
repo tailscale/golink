@@ -1139,8 +1139,11 @@ type SearchResult struct {
 	DetailTarget string `json:"detailTarget"`
 }
 
+// searchLimitJSON is the cap on results returned to the JSON/JS autocomplete.
+const searchLimitJSON = 8
+
 // searchLimitHTML is the cap on results returned to the server-rendered
-// /.search HTML page.
+// /.search HTML page (the no-JS fallback and "More results" destination).
 const searchLimitHTML = 100
 
 // runSearch performs a search query end-to-end: parse the input, fuzzy
@@ -1215,8 +1218,15 @@ func (s *Server) runSearch(cu string, raw string, limit int) (parsed searchInput
 	return in, results, limitHit
 }
 
-// searchPageData is the data passed to searchTmpl for the server-rendered
-// page, shared by /.search and /.all.
+// acceptsJSON reports whether the request's Accept header prefers JSON.
+// We use a simple substring match against "application/json"; the full
+// RFC 9110 q-value algorithm is overkill here.
+func acceptsJSON(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "application/json")
+}
+
+// searchPageData is the data passed to searchTmpl for the no-JS
+// server-rendered page, shared by /.search and /.all.
 type searchPageData struct {
 	Query    string         // the raw, untrimmed user input
 	Parsed   searchInput    // parsed form, for showing "search mode" in the UI
@@ -1233,8 +1243,9 @@ func (d searchPageData) TableView() bool {
 	return d.All || d.Parsed.FilterOnly()
 }
 
-// serveSearch handles GET /.search, returning a server-rendered HTML results
-// page for the parsed query.
+// serveSearch handles GET /.search. Depending on the Accept header it either
+// returns a JSON autocomplete response (for the JS combobox) or a fully
+// server-rendered HTML page (the no-JS fallback and "More results" target).
 func (s *Server) serveSearch(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("q")
 	// Defend against absurdly long inputs; the fuzzy matcher is linear
@@ -1244,13 +1255,42 @@ func (s *Server) serveSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	cu, err := s.currentUser(r)
 	if err != nil && !s.allowUnknownUsers {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		// For the HTML page, surface the error. For the JSON endpoint,
+		// autocomplete is a best-effort UI aid; failing to resolve the
+		// user just means template expansion that references .User
+		// will fall back to the raw Long.
+		if !acceptsJSON(r) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	limit := searchLimitHTML
+	if acceptsJSON(r) {
+		limit = searchLimitJSON
+	}
 	parsed, results, limitHit := s.runSearch(cu.login, raw, limit)
 
+	if acceptsJSON(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(struct {
+			Query       string         `json:"query"`
+			ShortQuery  string         `json:"shortQuery"`
+			IncludeLong bool           `json:"includeLong"`
+			Results     []SearchResult `json:"results"`
+			LimitHit    bool           `json:"limitHit"`
+		}{
+			Query:       raw,
+			ShortQuery:  parsed.ShortQuery,
+			IncludeLong: parsed.IncludeLong,
+			Results:     results,
+			LimitHit:    limitHit,
+		})
+		return
+	}
+
+	// HTML page (no JS).
 	if err := s.searchTmpl.Execute(w, searchPageData{
 		Query:    raw,
 		Parsed:   parsed,

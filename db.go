@@ -40,9 +40,20 @@ func linkID(short string) string {
 }
 
 // SQLiteDB stores Links in a SQLite database.
+//
+// It also maintains an in-memory index of all Links, kept in sync with the
+// database under the single mutex below. The index exists to service
+// low-latency lookups without issuing a SQL query per keystroke.
 type SQLiteDB struct {
 	db *sql.DB
 	mu sync.RWMutex
+
+	// idx is the in-memory index of all Links, keyed by linkID(Short).
+	// It is populated on construction from LoadAll and kept in sync by
+	// Save, SaveAll, and Delete. Link values in idx are never mutated
+	// after insertion (callers of Save construct a fresh *Link each time),
+	// so pointers may be read without copying.
+	idx map[string]*Link
 
 	clock tstime.Clock // allow overriding time for tests
 }
@@ -64,7 +75,35 @@ func NewSQLiteDB(f string) (*SQLiteDB, error) {
 		return nil, err
 	}
 
-	return &SQLiteDB{db: db}, nil
+	s := &SQLiteDB{db: db, idx: make(map[string]*Link)}
+	// Populate the in-memory index from any pre-existing rows.
+	if err := s.rebuildIndexLocked(); err != nil {
+		return nil, fmt.Errorf("rebuilding in-memory link index: %w", err)
+	}
+	return s, nil
+}
+
+// rebuildIndexLocked populates s.idx from the Links table. It must be called
+// with s.mu held for writing (or with no concurrent users, as in the
+// constructor). We bypass LoadAll to avoid deadlocking on the mutex.
+func (s *SQLiteDB) rebuildIndexLocked() error {
+	rows, err := s.db.Query("SELECT Short, Long, Created, LastEdit, Owner FROM Links")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	s.idx = make(map[string]*Link)
+	for rows.Next() {
+		link := new(Link)
+		var created, lastEdit int64
+		if err := rows.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner); err != nil {
+			return err
+		}
+		link.Created = time.Unix(created, 0).UTC()
+		link.LastEdit = time.Unix(lastEdit, 0).UTC()
+		s.idx[linkID(link.Short)] = link
+	}
+	return rows.Err()
 }
 
 // Now returns the current time.
@@ -138,6 +177,10 @@ func (s *SQLiteDB) Save(link *Link) error {
 	if rows != 1 {
 		return fmt.Errorf("expected to affect 1 row, affected %d", rows)
 	}
+	// Keep the in-memory index in sync. Store a copy so the caller
+	// can't mutate the indexed value after the fact.
+	cp := *link
+	s.idx[linkID(link.Short)] = &cp
 	return nil
 }
 
@@ -159,24 +202,38 @@ func (s *SQLiteDB) SaveAll(links []*Link) (int, error) {
 	}
 	defer stmt.Close()
 
-	var inserted int
+	// Track which links were actually inserted (vs ignored) so we can
+	// mirror the DB state into the in-memory index only after a
+	// successful Commit.
+	insertedLinks := make([]*Link, 0, len(links))
 	for _, link := range links {
 		result, err := stmt.Exec(linkID(link.Short), link.Short, link.Long, link.Created.Unix(), link.LastEdit.Unix(), link.Owner)
 		if err != nil {
 			tx.Rollback()
-			return inserted, err
+			return len(insertedLinks), err
 		}
 		rows, err := result.RowsAffected()
 		if err != nil {
 			tx.Rollback()
-			return inserted, err
+			return len(insertedLinks), err
 		}
-		inserted += int(rows)
+		if rows == 1 {
+			insertedLinks = append(insertedLinks, link)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
-	return inserted, nil
+	for _, link := range insertedLinks {
+		// Only insert if absent so we don't stomp an entry that the DB
+		// had already (INSERT OR IGNORE keeps the existing row).
+		id := linkID(link.Short)
+		if _, exists := s.idx[id]; !exists {
+			cp := *link
+			s.idx[id] = &cp
+		}
+	}
+	return len(insertedLinks), nil
 }
 
 // Delete removes a Link using its short name.
@@ -195,6 +252,7 @@ func (s *SQLiteDB) Delete(short string) error {
 	if rows != 1 {
 		return fmt.Errorf("expected to affect 1 row, affected %d", rows)
 	}
+	delete(s.idx, linkID(short))
 	return nil
 }
 

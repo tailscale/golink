@@ -165,3 +165,102 @@ func Test_SQLiteDB_GetLinksByOwner(t *testing.T) {
 		t.Errorf("db.GetLinksByOwner got %v; want empty slice", got)
 	}
 }
+
+// Test_SQLiteDB_IndexStaysInSync verifies that Save, SaveAll, and Delete
+// keep the in-memory link index consistent with the SQL table.
+func Test_SQLiteDB_IndexStaysInSync(t *testing.T) {
+	db, err := NewSQLiteDB(path.Join(t.TempDir(), "links.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// snapshot compares the in-memory idx against a fresh LoadAll of
+	// the SQLite table, keyed by linkID. Link values are compared by
+	// Short/Long/Owner (timestamps are truncated to seconds by storage
+	// and preserved verbatim in the index, so we ignore them here).
+	snapshot := func(stepName string) {
+		t.Helper()
+		got, err := db.LoadAll()
+		if err != nil {
+			t.Fatalf("[%s] LoadAll: %v", stepName, err)
+		}
+		wantIDs := make(map[string]bool, len(got))
+		for _, l := range got {
+			wantIDs[linkID(l.Short)] = true
+		}
+		db.mu.RLock()
+		defer db.mu.RUnlock()
+		if len(db.idx) != len(got) {
+			t.Errorf("[%s] idx size = %d, db rows = %d", stepName, len(db.idx), len(got))
+		}
+		for id := range wantIDs {
+			l, ok := db.idx[id]
+			if !ok {
+				t.Errorf("[%s] row with id %q not present in idx", stepName, id)
+				continue
+			}
+			if linkID(l.Short) != id {
+				t.Errorf("[%s] idx key %q points to link with Short %q (expected linkID to match)", stepName, id, l.Short)
+			}
+		}
+		for id, l := range db.idx {
+			if !wantIDs[id] {
+				t.Errorf("[%s] idx contains id %q (%+v) not in DB", stepName, id, l)
+			}
+		}
+	}
+
+	snapshot("empty")
+
+	// Save one.
+	if err := db.Save(&Link{Short: "foo", Long: "http://foo/"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot("after save foo")
+
+	// Overwrite it.
+	if err := db.Save(&Link{Short: "foo", Long: "http://foo2/"}); err != nil {
+		t.Fatal(err)
+	}
+	if l := db.idx[linkID("foo")]; l == nil || l.Long != "http://foo2/" {
+		t.Errorf("idx foo.Long = %q, want http://foo2/", l.Long)
+	}
+	snapshot("after overwrite foo")
+
+	// SaveAll with a mix of new and existing links.
+	n, err := db.SaveAll([]*Link{
+		{Short: "foo", Long: "http://ignored/"}, // INSERT OR IGNORE: should not overwrite
+		{Short: "bar", Long: "http://bar/"},
+		{Short: "baz", Long: "http://baz/"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("SaveAll inserted = %d, want 2", n)
+	}
+	if l := db.idx[linkID("foo")]; l == nil || l.Long != "http://foo2/" {
+		t.Errorf("after SaveAll, idx foo.Long = %q, want unchanged http://foo2/", l.Long)
+	}
+	snapshot("after SaveAll")
+
+	// Delete one.
+	if err := db.Delete("bar"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := db.idx[linkID("bar")]; ok {
+		t.Errorf("idx still contains bar after Delete")
+	}
+	snapshot("after delete bar")
+
+	// Caller mutates the link struct after Save: the idx entry must
+	// not change (we store a copy).
+	orig := &Link{Short: "mut", Long: "http://before/"}
+	if err := db.Save(orig); err != nil {
+		t.Fatal(err)
+	}
+	orig.Long = "http://after/"
+	if l := db.idx[linkID("mut")]; l == nil || l.Long != "http://before/" {
+		t.Errorf("idx mut.Long = %v, want http://before/ (caller-side mutation leaked into idx)", l)
+	}
+}

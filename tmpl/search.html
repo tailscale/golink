@@ -6,19 +6,54 @@
         Search
         {{ if .Query }}
           results for <code>{{ .Query }}</code>
+          {{ if .Parsed.IncludeLong }}<span class="text-sm text-gray-500">(matching short + long)</span>{{ end }}
         {{ end }}
       {{ end }}
     </h2>
 
-    {{ if not .Results }}
+    {{ if not .All }}
+      {{/*
+        Page-level search form. Submits back to /.search so users can
+        refine the query without first focusing the header combobox.
+        We intentionally avoid the ids/attributes that search.js hooks
+        (gl-search-input, role=combobox, aria-controls, etc.) so the
+        combobox JS doesn't try to enhance this input too; this is a
+        plain old form. autocomplete="off" prevents the browser's
+        history-based autofill dropdown.
+      */}}
+      <form class="gl-search-page-form" method="GET" action="/.search" role="search">
+        <label for="gl-search-page-input" class="sr-only">Refine search</label>
+        <input
+          type="search"
+          name="q"
+          id="gl-search-page-input"
+          class="gl-search-page-input"
+          value="{{ .Query }}"
+          placeholder="Refine search (? to match URLs too)"
+          autocomplete="off"
+          aria-label="Refine search">
+      </form>
+    {{ end }}
+
+    {{ if and (not .All) (not .Query) }}
+      <p class="text-gray-500">Type a query in the search box above or in the header. Use <code>?query</code> to also match long URLs. Use <code>short/path?a=b</code> to preview a link with a path and query string. Use <code>owner:you@example.com</code> to list a user's links.</p>
+    {{ else if not .Results }}
       {{ if .All }}
         <p class="text-gray-500">No links yet.</p>
+      {{ else if .Parsed.FilterOnly }}
+        <p class="text-gray-500">No links found{{ if .Parsed.Filters.Owner }} owned by <code>{{ .Parsed.Filters.Owner }}</code>{{ end }}.</p>
       {{ else }}
-        <p class="text-gray-500">No matches.</p>
+        <p class="text-gray-500">No matches. Pressing Enter on <code>{{go}}/{{ .Parsed.ShortQuery }}</code> will take you to <a class="text-blue-600 hover:underline" href="/{{ .Parsed.ShortQuery }}">{{go}}/{{ .Parsed.ShortQuery }}</a>.</p>
       {{ end }}
     {{ else }}
+      {{/* Single table layout shared by every results page: the /.all
+           listing, filter-only searches (e.g. "owner:a@b.com"), and ranked
+           fuzzy searches. Fuzzy match positions are highlighted when present
+           and degrade to plain text otherwise, so the same table serves
+           browsing and searching alike. */}}
       <h3 class="text-sm text-gray-500 pb-2">
-        {{ len .Results }} result{{ if ne (len .Results) 1 }}s{{ end }}.
+        {{ len .Results }} result{{ if ne (len .Results) 1 }}s{{ end }}{{ if not .TableView }}, best match first{{ end }}.
+        {{ if .LimitHit }}<span class="text-gray-700">Truncated at {{ .Limit }}; narrow your query.</span>{{ end }}
       </h3>
       <table class="table-auto w-full max-w-screen-lg">
         <thead class="border-b border-gray-200 uppercase text-xs text-gray-500 text-left">
@@ -34,12 +69,19 @@
           <tr class="flex hover:bg-gray-100 group border-b border-gray-200">
             <td class="flex-1 p-2 min-w-0">
               <div class="flex">
-                <a class="flex-1 min-w-0 hover:text-blue-500 hover:underline" href="{{ .Target }}">{{go}}/{{ .Short }}</a>
+                <a class="flex-1 min-w-0 hover:text-blue-500 hover:underline" href="{{ .Target }}">{{go}}/{{ highlight .Short .ShortMatchedIndexes }}</a>
                 <a class="flex items-center px-2 invisible group-hover:visible" title="Link Details" href="{{ .DetailTarget }}">
                   <svg class="hover:fill-blue-500" xmlns="http://www.w3.org/2000/svg" height="1.3em" viewBox="0 0 24 24" width="1.3em" fill="#000000" stroke-width="2"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
                 </a>
               </div>
-              <p class="text-sm leading-normal text-gray-500 group-hover:text-gray-700 max-w-[75vw] md:max-w-[40vw] truncate">{{ .Rendered }}</p>
+              <p class="text-sm leading-normal text-gray-500 group-hover:text-gray-700 max-w-[75vw] md:max-w-[40vw] truncate">&rarr; {{ .Rendered }}</p>
+              {{/* For template links, also show the raw template with its
+                   fuzzy matches highlighted (hidden when raw == rendered). */}}
+              {{ if and (contains .Long "{{") (ne .Long .Rendered) }}
+                <p class="text-sm leading-normal text-gray-500 max-w-[75vw] md:max-w-[40vw] truncate gl-search-template-line">
+                  <code class="gl-search-template-code">{{ highlight .Long .LongMatchedIndexes }}</code>
+                </p>
+              {{ end }}
               <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Owner</span> {{ .Owner }}</p>
               <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Last Edited</span> {{ .LastEdit.Format "Jan 2, 2006" }}</p>
               <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Clicks</span> {{ .NumClicks }}</p>

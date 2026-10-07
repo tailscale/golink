@@ -736,6 +736,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/.export-stats", s.serveExportStats)
 	mux.HandleFunc("/.help", s.serveHelp)
 	mux.HandleFunc("/.opensearch", s.serveOpenSearch)
+	mux.HandleFunc("/.opensearch/suggest", s.serveOpenSearchSuggest)
 	mux.HandleFunc("/.all", s.serveAll)
 	mux.HandleFunc("/.delete/", s.serveDelete)
 	mux.HandleFunc("/.search", s.serveSearch)
@@ -851,9 +852,71 @@ func (s *Server) serveHelp(w http.ResponseWriter, _ *http.Request) {
 	s.helpTmpl.Execute(w, nil)
 }
 
-func (s *Server) serveOpenSearch(w http.ResponseWriter, _ *http.Request) {
+type openSearchData struct {
+	BaseURL string
+}
+
+func (s *Server) requestedBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if xfProto := r.Header.Get("X-Forwarded-Proto"); xfProto != "" {
+		if p, _, _ := strings.Cut(xfProto, ","); p != "" {
+			scheme = strings.TrimSpace(p)
+		}
+	}
+	host := r.Host
+	if host == "" {
+		host = s.hostname
+	}
+	return scheme + "://" + host
+}
+
+func (s *Server) serveOpenSearch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/opensearchdescription+xml")
-	s.opensearchTmpl.Execute(w, nil)
+	s.opensearchTmpl.Execute(w, openSearchData{BaseURL: s.requestedBaseURL(r)})
+}
+
+// serveOpenSearchSuggest serves OpenSearch suggestion responses as a JSON
+// array in the format:
+//
+//	[query, [suggestion1, suggestion2, ...], [description1, description2, ...], [url1, url2, ...]]
+//
+// Browsers consume this endpoint when the user adds go/ as a search engine
+// and types in the omnibox/search box.
+func (s *Server) serveOpenSearchSuggest(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	cu, err := s.currentUser(r)
+	if err != nil {
+		// Suggestions are best-effort UX. If user resolution fails,
+		// continue with an empty user so template expansion falls back
+		// to raw long URLs where needed.
+		cu = user{}
+	}
+	parsed, results, _ := s.runSearch(cu.login, q, searchLimitJSON)
+
+	// Preserve any typed path/query suffix when replacing just the short name
+	// portion of the suggestion.
+	suffix := ""
+	if parsed.Path != "" {
+		suffix += "/" + parsed.Path
+	}
+	if len(parsed.Query) > 0 {
+		suffix += "?" + parsed.Query.Encode()
+	}
+
+	suggestions := make([]string, 0, len(results))
+	descriptions := make([]string, 0, len(results))
+	urls := make([]string, 0, len(results))
+	for _, res := range results {
+		suggestions = append(suggestions, res.Short+suffix)
+		descriptions = append(descriptions, res.Rendered)
+		urls = append(urls, res.Rendered)
+	}
+
+	w.Header().Set("Content-Type", "application/x-suggestions+json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode([]any{q, suggestions, descriptions, urls})
 }
 
 func (s *Server) serveGo(w http.ResponseWriter, r *http.Request) {

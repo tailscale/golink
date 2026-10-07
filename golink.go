@@ -36,6 +36,8 @@ import (
 	"tailscale.com/client/local"
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/envknob"
+	// links in workload identity federation support for tsnet.
+	_ "tailscale.com/feature/identityfederation"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
@@ -250,6 +252,8 @@ func Run(ctx context.Context) error {
 		readonly          = flag.Bool("readonly", false, "start golink server in read-only mode")
 		advertiseTags     = flag.String("advertise-tags", os.Getenv("TS_ADVERTISE_TAGS"), "comma-separated list of ACL tags to advertise (e.g. tag:golink)")
 		serviceName       = flag.String("register-as-service", envknob.String("TS_SERVICE_NAME"), "register as a Tailscale Service (e.g., svc:golink); requires tagged node")
+		authKeyFile       = flag.String("auth-key-file", envknob.String("TS_AUTHKEY_FILE"), "path to a file containing the Tailscale auth key; takes precedence over TS_AUTHKEY")
+		idTokenFile       = flag.String("id-token-file", envknob.String("TS_ID_TOKEN_FILE"), "path to a file containing an ID token for workload identity federation (e.g. a mounted Kubernetes ServiceAccount token); requires TS_CLIENT_ID")
 	)
 	flag.Parse()
 
@@ -363,6 +367,15 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	authKey, err := readFlagFile(*authKeyFile)
+	if err != nil {
+		return fmt.Errorf("reading auth key file: %w", err)
+	}
+	idToken, err := readFlagFile(*idTokenFile)
+	if err != nil {
+		return fmt.Errorf("reading ID token file: %w", err)
+	}
+
 	// create tsNet server and wait for it to be ready & connected.
 	ts := &tsnet.Server{
 		ControlURL:    *controlURL,
@@ -371,6 +384,8 @@ func Run(ctx context.Context) error {
 		Logf:          func(format string, args ...any) {},
 		RunWebClient:  true,
 		AdvertiseTags: tags,
+		AuthKey:       authKey,
+		IDToken:       idToken,
 	}
 	if *verbose {
 		ts.Logf = log.Printf
@@ -1494,4 +1509,17 @@ func parseAdvertiseTags(s string) ([]string, error) {
 		tags = append(tags, tag)
 	}
 	return tags, nil
+}
+
+// readFlagFile returns the trimmed contents of the file at path, or "" if path
+// is empty.
+func readFlagFile(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
 }

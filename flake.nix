@@ -2,7 +2,7 @@
   description = "golink - A private shortlink service for tailnets";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     systems.url = "github:nix-systems/default";
   };
 
@@ -20,19 +20,6 @@
         nixpkgs.lib.genAttrs (import systems) (system:
           f (import nixpkgs {
             system = system;
-            overlays = [
-              (final: prev: {
-                go_1_26 = prev.go_1_26.overrideAttrs {
-                  version = goVersion;
-                  src = prev.fetchFromGitHub {
-                    owner = "tailscale";
-                    repo = "go";
-                    rev = toolChainRev;
-                    sha256 = gitHash;
-                  };
-                };
-              })
-            ];
           }));
       tailscaleRev = self.rev or "";
     in
@@ -172,7 +159,8 @@
                 in
                 ''
                   ${optionalString (cfg.tailscaleAuthKeyFile != null) ''
-                    export TS_AUTHKEY="$(head -n1 ${escapeShellArg cfg.tailscaleAuthKeyFile})"
+                    TS_AUTHKEY="$(head -n1 ${escapeShellArg cfg.tailscaleAuthKeyFile})"
+                    export TS_AUTHKEY
                   ''}
 
                   ${cfg.package}/bin/golink ${concatStringsSep " " args}

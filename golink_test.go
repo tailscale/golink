@@ -1019,6 +1019,103 @@ func TestSearchResults(t *testing.T) {
 	}
 }
 
+func TestServeOpenSearch(t *testing.T) {
+	s := newTestServer(t)
+	r := httptest.NewRequest("GET", "/.opensearch", nil)
+	r.Host = "go.tailnet.test:8443"
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("/.opensearch status = %d; body=%s", w.Code, w.Body.String())
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/opensearchdescription+xml") {
+		t.Fatalf("/.opensearch Content-Type = %q", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `http://go.tailnet.test:8443/`) {
+		t.Fatalf("/.opensearch should use request host/scheme in URLs: %s", body)
+	}
+	if !strings.Contains(body, `type="application/x-suggestions+json"`) {
+		t.Fatalf("/.opensearch missing suggestions Url: %s", body)
+	}
+	if !strings.Contains(body, `/.opensearch/suggest?q={searchTerms}`) {
+		t.Fatalf("/.opensearch missing suggest template URL: %s", body)
+	}
+}
+
+func TestServeOpenSearchSuggest(t *testing.T) {
+	s := newTestServer(t)
+	for _, l := range []*Link{
+		{Short: "who", Long: "http://who/"},
+		{Short: "whowhat", Long: "https://example.com/whowhat"},
+		{Short: "docs", Long: "https://docs.example.com/"},
+	} {
+		if err := s.db.Save(l); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	r := httptest.NewRequest("GET", "/.opensearch/suggest?q=who/path?x=1", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("/.opensearch/suggest status = %d; body=%s", w.Code, w.Body.String())
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/x-suggestions+json") {
+		t.Fatalf("/.opensearch/suggest Content-Type = %q", ct)
+	}
+
+	var payload []json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode payload: %v body=%s", err, w.Body.String())
+	}
+	if len(payload) != 4 {
+		t.Fatalf("payload length = %d, want 4", len(payload))
+	}
+
+	var query string
+	if err := json.Unmarshal(payload[0], &query); err != nil {
+		t.Fatal(err)
+	}
+	if query != "who/path?x=1" {
+		t.Fatalf("query = %q, want who/path?x=1", query)
+	}
+
+	var suggestions []string
+	if err := json.Unmarshal(payload[1], &suggestions); err != nil {
+		t.Fatal(err)
+	}
+	if len(suggestions) == 0 {
+		t.Fatalf("suggestions empty")
+	}
+	if suggestions[0] != "who/path?x=1" {
+		t.Fatalf("first suggestion = %q, want who/path?x=1", suggestions[0])
+	}
+
+	var descriptions []string
+	if err := json.Unmarshal(payload[2], &descriptions); err != nil {
+		t.Fatal(err)
+	}
+	if len(descriptions) != len(suggestions) {
+		t.Fatalf("descriptions len=%d suggestions len=%d", len(descriptions), len(suggestions))
+	}
+
+	var urls []string
+	if err := json.Unmarshal(payload[3], &urls); err != nil {
+		t.Fatal(err)
+	}
+	if len(urls) != len(suggestions) {
+		t.Fatalf("urls len=%d suggestions len=%d", len(urls), len(suggestions))
+	}
+	if urls[0] != "http://who/path?x=1" {
+		t.Fatalf("first url = %q, want http://who/path?x=1", urls[0])
+	}
+}
+
 func TestServeSearchHTMLFallback(t *testing.T) {
 	s := newTestServer(t)
 	s.db.Save(&Link{Short: "hello", Long: "http://hello/"})

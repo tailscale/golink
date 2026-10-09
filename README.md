@@ -141,6 +141,62 @@ Users just need to have Tailscale installed and connected to the tailnet.
 
 [MagicDNS]: https://tailscale.com/kb/1081/magicdns/
 
+## Browser OpenSearch integration
+
+golink publishes an OpenSearch descriptor at `/.opensearch` and links to it
+from the main page. Once installed in your browser, you can search golink
+directly from the address bar/search UI and receive live suggestions.
+
+### Firefox
+
+1. Visit your golink home page (for example `http://go/`).
+2. Open Firefox settings at `about:preferences#search`.
+3. In the search engine list, add/select the discovered `go` engine.
+4. Use it from the address bar by typing `@go <query>`.
+
+If the engine isn't discovered automatically, add it manually under
+**Additional search engines** → **Add**, filling in the *Edit Search Engine*
+dialog:
+
+| Field | Value |
+| --- | --- |
+| Search engine name | `Go` |
+| URL with %s in place of search term | `http://go/%s` |
+| Keyword (optional) | `@go` |
+| POST data with %s in place of search term | *(leave empty for GET)* |
+| Suggestions URL with %s in place of search term (optional) | `http://go/.opensearch/suggest?q=%s` |
+
+Then click **Save Engine**.
+
+Notes:
+- Substitute your deployed host for `go` if you serve golink elsewhere (for
+  example `http://go.example.com/%s`).
+- If you've previously added a manual search engine, remove it first so Firefox
+  prefers the OpenSearch-discovered one.
+
+### Chrome
+
+1. Visit your golink home page once.
+2. Open `chrome://settings/searchEngines`.
+3. Under site search shortcuts, find the auto-discovered golink entry.
+4. Update its keyword to something short like `@go` (the URL is already correct).
+
+Use it by typing the keyword in the address bar, pressing `Tab`, then entering
+the query.
+
+### Safari
+
+Safari's Quick Website Search is powered by OpenSearch and lets you search
+golink from the address bar after you've visited it once.
+
+1. Enable it under **Settings** → **Search** → **Enable Quick Website Search**.
+2. Visit your golink home page (for example `http://go/`) and run a search so
+   Safari records the site.
+3. Click **Manage Websites…** next to that setting to see the list of sites
+   Quick Website Search is enabled for; golink appears under whatever short name
+   you access it by (for example `go`).
+4. Search from the address bar by typing that short name followed by your query.
+
 ## Running in production
 
 golink compiles as a single static binary (including the frontend) and can be deployed and run like any other binary.

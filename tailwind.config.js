@@ -1,5 +1,5 @@
 module.exports = {
-  content: ["./tmpl/*.html"],
+  content: ["./tmpl/*.html", "./static/*.js"],
   theme: {
     colors: {
       blue: {

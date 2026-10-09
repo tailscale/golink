@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"io/fs"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/sahilm/fuzzy"
 	_ "modernc.org/sqlite"
 	"tailscale.com/tstime"
 )
@@ -40,11 +42,44 @@ func linkID(short string) string {
 }
 
 // SQLiteDB stores Links in a SQLite database.
+//
+// It also maintains an in-memory index of all Links, kept in sync with the
+// database under the single mutex below. The index exists to service
+// low-latency fuzzy autocomplete queries ([SQLiteDB.SearchShort]) without
+// issuing a SQL query per keystroke.
 type SQLiteDB struct {
 	db *sql.DB
 	mu sync.RWMutex
 
+	// idx is the in-memory index of all Links, keyed by linkID(Short).
+	// It is populated on construction from LoadAll and kept in sync by
+	// Save, SaveAll, and Delete. Link values in idx are never mutated
+	// after insertion (callers of Save construct a fresh *Link each time),
+	// so pointers may be read without copying.
+	idx map[string]*Link
+
 	clock tstime.Clock // allow overriding time for tests
+}
+
+// SearchMatch is a single link that matched a SearchShort query,
+// along with information useful for highlighting and ranking.
+type SearchMatch struct {
+	Link *Link
+	// ShortMatchedIndexes are the rune indexes within Link.Short that
+	// matched characters from the query, or nil if the query did not
+	// match against the short name.
+	ShortMatchedIndexes []int
+	// LongMatchedIndexes are the rune indexes within Link.Long that
+	// matched characters from the query, populated only in includeLong
+	// mode when the query matched the long URL, or nil otherwise.
+	LongMatchedIndexes []int
+	// Score is the best (highest) fuzzy score across fields for this
+	// candidate. Higher is better.
+	Score int
+	// MatchedShort is true if the query matched against Link.Short.
+	// If MatchedShort is false (includeLong mode only), the match came
+	// from Link.Long alone.
+	MatchedShort bool
 }
 
 //go:embed schema.sql
@@ -64,7 +99,35 @@ func NewSQLiteDB(f string) (*SQLiteDB, error) {
 		return nil, err
 	}
 
-	return &SQLiteDB{db: db}, nil
+	s := &SQLiteDB{db: db, idx: make(map[string]*Link)}
+	// Populate the in-memory index from any pre-existing rows.
+	if err := s.rebuildIndexLocked(); err != nil {
+		return nil, fmt.Errorf("rebuilding in-memory link index: %w", err)
+	}
+	return s, nil
+}
+
+// rebuildIndexLocked populates s.idx from the Links table. It must be called
+// with s.mu held for writing (or with no concurrent users, as in the
+// constructor). We bypass LoadAll to avoid deadlocking on the mutex.
+func (s *SQLiteDB) rebuildIndexLocked() error {
+	rows, err := s.db.Query("SELECT Short, Long, Created, LastEdit, Owner FROM Links")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	s.idx = make(map[string]*Link)
+	for rows.Next() {
+		link := new(Link)
+		var created, lastEdit int64
+		if err := rows.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner); err != nil {
+			return err
+		}
+		link.Created = time.Unix(created, 0).UTC()
+		link.LastEdit = time.Unix(lastEdit, 0).UTC()
+		s.idx[linkID(link.Short)] = link
+	}
+	return rows.Err()
 }
 
 // Now returns the current time.
@@ -138,6 +201,10 @@ func (s *SQLiteDB) Save(link *Link) error {
 	if rows != 1 {
 		return fmt.Errorf("expected to affect 1 row, affected %d", rows)
 	}
+	// Keep the in-memory index in sync. Store a copy so the caller
+	// can't mutate the indexed value after the fact.
+	cp := *link
+	s.idx[linkID(link.Short)] = &cp
 	return nil
 }
 
@@ -159,24 +226,38 @@ func (s *SQLiteDB) SaveAbsent(links []*Link) (int, error) {
 	}
 	defer stmt.Close()
 
-	var inserted int
+	// Track which links were actually inserted (vs ignored) so we can
+	// mirror the DB state into the in-memory index only after a
+	// successful Commit.
+	insertedLinks := make([]*Link, 0, len(links))
 	for _, link := range links {
 		result, err := stmt.Exec(linkID(link.Short), link.Short, link.Long, link.Created.Unix(), link.LastEdit.Unix(), link.Owner)
 		if err != nil {
 			tx.Rollback()
-			return inserted, err
+			return len(insertedLinks), err
 		}
 		rows, err := result.RowsAffected()
 		if err != nil {
 			tx.Rollback()
-			return inserted, err
+			return len(insertedLinks), err
 		}
-		inserted += int(rows)
+		if rows == 1 {
+			insertedLinks = append(insertedLinks, link)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
-	return inserted, nil
+	for _, link := range insertedLinks {
+		// Only insert if absent so we don't stomp an entry that the DB
+		// had already (INSERT OR IGNORE keeps the existing row).
+		id := linkID(link.Short)
+		if _, exists := s.idx[id]; !exists {
+			cp := *link
+			s.idx[id] = &cp
+		}
+	}
+	return len(insertedLinks), nil
 }
 
 // Delete removes a Link using its short name.
@@ -195,6 +276,7 @@ func (s *SQLiteDB) Delete(short string) error {
 	if rows != 1 {
 		return fmt.Errorf("expected to affect 1 row, affected %d", rows)
 	}
+	delete(s.idx, linkID(short))
 	return nil
 }
 
@@ -264,26 +346,143 @@ func (s *SQLiteDB) DeleteStats(short string) error {
 	return nil
 }
 
-// GetLinksByOwner returns all Links owned by the specified owner.
-func (s *SQLiteDB) GetLinksByOwner(owner string) ([]*Link, error) {
+// SearchShort returns up to `limit` links whose short name (and, if
+// includeLong is true, whose long URL too) fuzzy-match the given query,
+// restricted to links satisfying filters. Results are ordered best-match first.
+//
+// Matching is powered by github.com/sahilm/fuzzy (fzf-style subsequence
+// matching with bonuses for matches at the start of the string, following
+// separators such as "-" "." "_", and adjacent to previous matches).
+//
+// In includeLong mode, each link is scored twice (once against Short, once
+// against Long) and receives the higher of the two scores; the returned
+// SearchMatch carries both ShortMatchedIndexes and LongMatchedIndexes so
+// callers can highlight matches in whichever field matched.
+//
+// When query is empty but filters is non-empty, no fuzzy matching is performed;
+// every link passing the filter is returned, ordered alphabetically by short
+// name. When both query and filters are empty, the result is empty.
+//
+// Searches run entirely against the in-memory index; no SQL is issued.
+func (s *SQLiteDB) SearchShort(query string, includeLong bool, filters searchFilters, limit int) []SearchMatch {
+	if limit <= 0 || (query == "" && filters.Empty()) {
+		return nil
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var links []*Link
-	rows, err := s.db.Query("SELECT Short, Long, Created, LastEdit, Owner FROM Links WHERE LOWER(Owner) = LOWER(?)", owner)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		link := new(Link)
-		var created, lastEdit int64
-		err := rows.Scan(&link.Short, &link.Long, &created, &lastEdit, &link.Owner)
-		if err != nil {
-			return nil, err
+	// Build a stable ordering of filtered candidates so that ties break
+	// predictably (alphabetical by short name).
+	links := make([]*Link, 0, len(s.idx))
+	for _, l := range s.idx {
+		if filters.Owner != "" && !strings.EqualFold(l.Owner, filters.Owner) {
+			continue
 		}
-		link.Created = time.Unix(created, 0).UTC()
-		link.LastEdit = time.Unix(lastEdit, 0).UTC()
-		links = append(links, link)
+		links = append(links, l)
 	}
-	return links, rows.Err()
+	sort.Slice(links, func(i, j int) bool {
+		return links[i].Short < links[j].Short
+	})
+
+	// A filter with no query is a plain listing: the candidates are already
+	// sorted, so just cap and return them with no match highlighting.
+	if query == "" {
+		if len(links) > limit {
+			links = links[:limit]
+		}
+		out := make([]SearchMatch, 0, len(links))
+		for _, l := range links {
+			out = append(out, SearchMatch{Link: l})
+		}
+		return out
+	}
+
+	// Pass 1: fuzzy match against short names.
+	shortMatches := fuzzy.FindFrom(query, linkShortSource(links))
+
+	// When includeLong is false, we're done after pass 1.
+	if !includeLong {
+		if len(shortMatches) > limit {
+			shortMatches = shortMatches[:limit]
+		}
+		out := make([]SearchMatch, 0, len(shortMatches))
+		for _, m := range shortMatches {
+			out = append(out, SearchMatch{
+				Link:                links[m.Index],
+				ShortMatchedIndexes: m.MatchedIndexes,
+				Score:               m.Score,
+				MatchedShort:        true,
+			})
+		}
+		return out
+	}
+
+	// Pass 2 (includeLong): fuzzy match against long URLs. Merge with
+	// pass 1 by link index, keeping the best score and remembering
+	// which field(s) matched. We run two separate passes rather than
+	// concatenating the strings because sahilm/fuzzy treats a NUL byte
+	// (0) as an end-of-string sentinel internally, so any composite
+	// separator would either be stripped out of candidates or confuse
+	// the matcher.
+	merged := make(map[int]*SearchMatch, len(shortMatches))
+	for _, m := range shortMatches {
+		merged[m.Index] = &SearchMatch{
+			Link:                links[m.Index],
+			ShortMatchedIndexes: m.MatchedIndexes,
+			Score:               m.Score,
+			MatchedShort:        true,
+		}
+	}
+	longMatches := fuzzy.FindFrom(query, linkLongSource(links))
+	for _, m := range longMatches {
+		if existing, ok := merged[m.Index]; ok {
+			existing.LongMatchedIndexes = m.MatchedIndexes
+			// Keep the better score; if the long score is higher
+			// than the short score, the long match "wins" but we
+			// still keep both sets of positions so either field
+			// can be highlighted.
+			if m.Score > existing.Score {
+				existing.Score = m.Score
+			}
+		} else {
+			merged[m.Index] = &SearchMatch{
+				Link:               links[m.Index],
+				LongMatchedIndexes: m.MatchedIndexes,
+				Score:              m.Score,
+				MatchedShort:       false,
+			}
+		}
+	}
+	// Sort merged results by score desc, then by short name asc for
+	// a stable tie-break.
+	all := make([]*SearchMatch, 0, len(merged))
+	for _, m := range merged {
+		all = append(all, m)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].Score != all[j].Score {
+			return all[i].Score > all[j].Score
+		}
+		return all[i].Link.Short < all[j].Link.Short
+	})
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	out := make([]SearchMatch, len(all))
+	for i, m := range all {
+		out[i] = *m
+	}
+	return out
 }
+
+// linkShortSource and linkLongSource adapt a []*Link into the fuzzy.Source
+// interface, exposing either the Short or Long field for matching.
+type linkShortSource []*Link
+
+func (s linkShortSource) Len() int            { return len(s) }
+func (s linkShortSource) String(i int) string { return s[i].Short }
+
+type linkLongSource []*Link
+
+func (s linkLongSource) Len() int            { return len(s) }
+func (s linkLongSource) String(i int) string { return s[i].Long }

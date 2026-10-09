@@ -15,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"html/template"
 	"io/fs"
 	"log"
@@ -518,6 +519,16 @@ func (s *Server) searchResults(links []*Link) []searchResult {
 	return results
 }
 
+// annotateClicks fills in each result's NumClicks from the live in-memory
+// counter (the same source the home page uses), under the stats lock.
+func (s *Server) annotateClicks(results []SearchResult) {
+	s.stats.mu.Lock()
+	defer s.stats.mu.Unlock()
+	for i := range results {
+		results[i].NumClicks = s.stats.clicks[results[i].Short]
+	}
+}
+
 // homeData is the data used by homeTmpl.
 type homeData struct {
 	Short    string
@@ -550,6 +561,38 @@ func (s *Server) tmplFuncs() template.FuncMap {
 				return defaultHostname
 			}
 			return s.hostname
+		},
+		// contains reports whether s contains substr. Exposed for templates.
+		"contains": strings.Contains,
+		// highlight wraps each matched rune in the given string with a <mark>
+		// tag, returning HTML-safe output. Positions are rune indexes (not
+		// byte offsets), mirroring what sahilm/fuzzy returns. It's used by
+		// the search page to emphasize which characters of a short name or
+		// long URL matched the query, matching the autocomplete dropdown
+		// rendering.
+		//
+		// This function must HTML-escape the characters itself since it
+		// returns template.HTML to bypass the engine's default escaping of
+		// the <mark> tags.
+		"highlight": func(s string, positions []int) template.HTML {
+			if len(positions) == 0 {
+				return template.HTML(html.EscapeString(s))
+			}
+			pos := make(map[int]bool, len(positions))
+			for _, p := range positions {
+				pos[p] = true
+			}
+			var b strings.Builder
+			for i, r := range []rune(s) {
+				if pos[i] {
+					b.WriteString("<mark>")
+					b.WriteString(html.EscapeString(string(r)))
+					b.WriteString("</mark>")
+				} else {
+					b.WriteString(html.EscapeString(string(r)))
+				}
+			}
+			return template.HTML(b.String())
 		},
 	}
 }
@@ -769,6 +812,9 @@ func (s *Server) serveHome(w http.ResponseWriter, r *http.Request, short string)
 	})
 }
 
+// serveAll handles GET /.all, listing every link in the same table view
+// searchTmpl uses for a filter-only search. Unlike /.search it expands no
+// templates and takes no query; each result links straight to go/{short}.
 func (s *Server) serveAll(w http.ResponseWriter, _ *http.Request) {
 	if err := s.FlushStats(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -781,7 +827,24 @@ func (s *Server) serveAll(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	s.searchTmpl.Execute(w, s.searchResults(links))
+	results := make([]SearchResult, 0, len(links))
+	for _, l := range links {
+		results = append(results, SearchResult{
+			Short:        l.Short,
+			Long:         l.Long,
+			Rendered:     l.Long,
+			Owner:        l.Owner,
+			LastEdit:     l.LastEdit,
+			ShortEscaped: url.PathEscape(l.Short),
+			Target:       "/" + url.PathEscape(l.Short),
+			DetailTarget: "/.detail/" + url.PathEscape(l.Short),
+		})
+	}
+	s.annotateClicks(results)
+
+	if err := s.searchTmpl.Execute(w, searchPageData{All: true, Results: results}); err != nil {
+		log.Printf("searchTmpl.Execute: %v", err)
+	}
 }
 
 func (s *Server) serveHelp(w http.ResponseWriter, _ *http.Request) {
@@ -934,22 +997,271 @@ func (s *Server) serveDetail(w http.ResponseWriter, r *http.Request) {
 	s.detailTmpl.Execute(w, data)
 }
 
-// serveSearch handles requests to /.search?q={query}, where {query} can currently only be
-// the owner formated like "owner:<email>".
-func (s *Server) serveSearch(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("q")
-	owner, found := strings.CutPrefix(query, "owner:")
-	if !found {
-		http.Error(w, `search only supports "owner:<email>"`, http.StatusBadRequest)
-		return
+// searchFilters holds the structured filter tokens parsed off the front of a
+// search query. A zero searchFilters means no filters were given.
+type searchFilters struct {
+	// Owner, if non-empty, restricts results to links owned by this
+	// address. It is matched case-insensitively (see [SQLiteDB.SearchShort]).
+	Owner string
+}
+
+// Empty reports whether no filters are set.
+func (f searchFilters) Empty() bool {
+	return f == searchFilters{}
+}
+
+// searchInput is the parsed form of a raw search query string.
+//
+// Inputs mirror the redirect path taken by serveGo/resolveLink so that the
+// preview shown to the user matches what would actually happen on click.
+//
+// Examples:
+//
+//	"foo"                     -> {ShortQuery: "foo"}
+//	"foo/bar"                 -> {ShortQuery: "foo", Path: "bar"}
+//	"foo/bar/baz?x=1"         -> {ShortQuery: "foo", Path: "bar/baz", Query: {x: [1]}}
+//	"?docs"                   -> {ShortQuery: "docs", IncludeLong: true}
+//	"  ?foo/bar"              -> {ShortQuery: "foo", Path: "bar", IncludeLong: true}
+//	"owner:a@b.com"           -> {Filters: {Owner: "a@b.com"}}
+//	"owner:a@b.com deploy"    -> {Filters: {Owner: "a@b.com"}, ShortQuery: "deploy"}
+type searchInput struct {
+	// ShortQuery is the text the fuzzy matcher should match against the
+	// link short names.
+	ShortQuery string
+	// Path is the remaining path after the short name, if any.
+	// Corresponds to env.Path in [expandLink].
+	Path string
+	// Query is the URL query parameters parsed off the end of the input.
+	// Corresponds to env.query in [expandLink].
+	Query url.Values
+	// IncludeLong, when true, requests that matching consider both the
+	// short name and the long URL. The user opts into this mode by
+	// prefixing their input with "?".
+	IncludeLong bool
+	// Filters holds structured filter tokens (e.g. "owner:a@b.com") that
+	// were stripped from the front of the input.
+	Filters searchFilters
+}
+
+// FilterOnly reports whether the input carries a filter but no free text to
+// fuzzy-match, i.e. a request to list every link matching the filter.
+func (in searchInput) FilterOnly() bool {
+	return in.ShortQuery == "" && !in.Filters.Empty()
+}
+
+// parseSearchInput parses a raw search query string. Leading "key:value"
+// filter tokens are stripped first, then the "?" include-long prefix, then any
+// "?k=v" query suffix and "/path" remainder.
+func parseSearchInput(raw string) searchInput {
+	var out searchInput
+	s := strings.TrimLeft(raw, " \t")
+
+	// Consume leading filter tokens. Only "owner:" is recognized as of
+	// 2026-10-06; unknown "key:value" tokens are left in place to be
+	// fuzzy-matched like ordinary text.
+	for {
+		rest, ok := strings.CutPrefix(s, "owner:")
+		if !ok {
+			break
+		}
+		val, tail, _ := strings.Cut(rest, " ")
+		out.Filters.Owner = val
+		s = strings.TrimLeft(tail, " \t")
 	}
-	links, err := s.db.GetLinksByOwner(owner)
-	if err != nil {
+
+	if strings.HasPrefix(s, "?") {
+		out.IncludeLong = true
+		s = s[1:]
+	}
+	// Split off any "?k=v..." query string suffix. The first '?' wins;
+	// that's fine because legitimate short names cannot contain '?' (see
+	// reShortName).
+	if i := strings.IndexByte(s, '?'); i >= 0 {
+		if q, err := url.ParseQuery(s[i+1:]); err == nil {
+			out.Query = q
+		}
+		s = s[:i]
+	}
+	// Split once on '/'. Left side is the short to match against; right
+	// side becomes Path.
+	if i := strings.IndexByte(s, '/'); i >= 0 {
+		out.ShortQuery = s[:i]
+		out.Path = s[i+1:]
+	} else {
+		out.ShortQuery = s
+	}
+	return out
+}
+
+// SearchResult is a single autocomplete result, carrying enough
+// information to render both the textual listbox option and the
+// link destination a click would follow.
+type SearchResult struct {
+	// Short is the link short name. Used for keyboard navigation (Enter
+	// on this option navigates to go/{Short}{/Path}{?Query}).
+	Short string `json:"short"`
+	// Long is the raw Link.Long field (may be a text/template).
+	Long string `json:"long"`
+	// Rendered is Long expanded through [expandLink] with the current
+	// user, Path, and Query, matching what a real click would resolve
+	// to. On expansion error, Rendered is set to Long unchanged.
+	Rendered string `json:"rendered"`
+	// RenderError is a short, human-readable note if Rendered had to
+	// fall back due to an expansion error. Empty on success.
+	RenderError string `json:"renderError,omitempty"`
+	// Owner is the link's owner.
+	Owner string `json:"owner,omitempty"`
+	// LastEdit is when the link was last edited. Used by the filter-only
+	// table listing; omitted from JSON since the autocomplete doesn't use it.
+	LastEdit time.Time `json:"-"`
+	// NumClicks is the link's current click count, read from the live
+	// in-memory counter (the same source the home page uses).
+	NumClicks int `json:"numClicks"`
+	// ShortMatchedIndexes are rune positions within Short that matched
+	// a character of the query, or empty if no short match occurred.
+	ShortMatchedIndexes []int `json:"shortMatchedIndexes,omitempty"`
+	// LongMatchedIndexes are rune positions within Long that matched a
+	// character of the query; populated only when the query was in
+	// includeLong mode and the long URL matched. Note these are
+	// positions within the raw Long, not Rendered.
+	LongMatchedIndexes []int `json:"longMatchedIndexes,omitempty"`
+	// ShortEscaped is Short pre-escaped for use in a URL path. Exposed
+	// so clients can build target URLs without re-encoding logic.
+	ShortEscaped string `json:"shortEscaped"`
+	// Target is the full path (not absolute URL) a click on this
+	// result should navigate to, preserving the user's Path and Query.
+	// Callers can just set window.location to this value.
+	Target string `json:"target"`
+	// DetailTarget is the path to the link-details page for this
+	// result (/.detail/{short}). Clients use this for Alt+Enter /
+	// Alt+click to jump into the detail/edit page instead of
+	// following the link.
+	DetailTarget string `json:"detailTarget"`
+}
+
+// searchLimitHTML is the cap on results returned to the server-rendered
+// /.search HTML page.
+const searchLimitHTML = 100
+
+// runSearch performs a search query end-to-end: parse the input, fuzzy
+// match against the in-memory link index, expand each result's Long through
+// the same template machinery the redirect path uses, and return up to
+// `limit` [SearchResult]s ranked best-match first.
+//
+// The returned limitHit flag is true if the matcher would have produced
+// additional results beyond `limit`; callers can use this to surface a
+// "more results" indicator.
+//
+// The `cu` argument is used only for template expansion (e.g. a Long that
+// references {{.User}}). Callers that don't have a resolved user should
+// pass an empty string; templates that depend on .User will fail to expand
+// and the raw Long will be shown.
+func (s *Server) runSearch(cu string, raw string, limit int) (parsed searchInput, results []SearchResult, limitHit bool) {
+	in := parseSearchInput(raw)
+	// Empty input with no filter has nothing to match; a filter alone is a
+	// request to list every matching link.
+	if in.ShortQuery == "" && in.Filters.Empty() {
+		return in, nil, false
+	}
+	// Over-fetch by 1 so we can tell whether the result set was truncated
+	// without issuing a second query or a count.
+	matches := s.db.SearchShort(in.ShortQuery, in.IncludeLong, in.Filters, limit+1)
+	if len(matches) > limit {
+		matches = matches[:limit]
+		limitHit = true
+	}
+	results = make([]SearchResult, 0, len(matches))
+	now := time.Now().UTC()
+	for _, m := range matches {
+		r := SearchResult{
+			Short:               m.Link.Short,
+			Long:                m.Link.Long,
+			Owner:               m.Link.Owner,
+			LastEdit:            m.Link.LastEdit,
+			ShortMatchedIndexes: m.ShortMatchedIndexes,
+			LongMatchedIndexes:  m.LongMatchedIndexes,
+			ShortEscaped:        url.PathEscape(m.Link.Short),
+			DetailTarget:        "/.detail/" + url.PathEscape(m.Link.Short),
+		}
+		// Expand the long URL using the same env that serveGo would use.
+		env := expandEnv{Now: now, Path: in.Path, user: cu, query: in.Query}
+		u, err := expandLink(m.Link.Long, env)
+		if err != nil {
+			r.Rendered = m.Link.Long
+			r.RenderError = err.Error()
+		} else {
+			r.Rendered = u.String()
+		}
+		// Build the target URL a click should follow. We intentionally
+		// route through golink's own resolver (rather than the
+		// rendered external URL) so click stats, template variables
+		// that depend on request context, and edit redirects still
+		// work the same way they would from any other link.
+		var tgt strings.Builder
+		tgt.WriteByte('/')
+		tgt.WriteString(r.ShortEscaped)
+		if in.Path != "" {
+			tgt.WriteByte('/')
+			tgt.WriteString(in.Path)
+		}
+		if len(in.Query) > 0 {
+			tgt.WriteByte('?')
+			tgt.WriteString(in.Query.Encode())
+		}
+		r.Target = tgt.String()
+		results = append(results, r)
+	}
+	s.annotateClicks(results)
+	return in, results, limitHit
+}
+
+// searchPageData is the data passed to searchTmpl for the server-rendered
+// page, shared by /.search and /.all.
+type searchPageData struct {
+	Query    string         // the raw, untrimmed user input
+	Parsed   searchInput    // parsed form, for showing "search mode" in the UI
+	Results  []SearchResult // best-match-first
+	Limit    int            // max results this page was willing to render
+	LimitHit bool           // true if more results existed but were truncated
+	All      bool           // true on /.all: list everything in the table view
+}
+
+// TableView reports whether the results should render as the Owner/Last-Edited
+// table rather than the ranked fuzzy-search list. It covers the /.all listing
+// and filter-only searches (e.g. "owner:a@b.com").
+func (d searchPageData) TableView() bool {
+	return d.All || d.Parsed.FilterOnly()
+}
+
+// serveSearch handles GET /.search, returning a server-rendered HTML results
+// page for the parsed query.
+func (s *Server) serveSearch(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("q")
+	// Defend against absurdly long inputs; the fuzzy matcher is linear
+	// in query length but pathological input could still waste CPU.
+	if len(raw) > 256 {
+		raw = raw[:256]
+	}
+	cu, err := s.currentUser(r)
+	if err != nil && !s.allowUnknownUsers {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	s.searchTmpl.Execute(w, s.searchResults(links))
+	limit := searchLimitHTML
+	parsed, results, limitHit := s.runSearch(cu.login, raw, limit)
+
+	if err := s.searchTmpl.Execute(w, searchPageData{
+		Query:    raw,
+		Parsed:   parsed,
+		Results:  results,
+		Limit:    limit,
+		LimitHit: limitHit,
+	}); err != nil {
+		// Template execution errors after the response started streaming
+		// are effectively unrecoverable; log them but don't double-write.
+		log.Printf("searchTmpl.Execute: %v", err)
+	}
 }
 
 type expandEnv struct {

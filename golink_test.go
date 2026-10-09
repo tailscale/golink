@@ -781,6 +781,36 @@ func TestHTTPSRedirectHandlerWithQuery(t *testing.T) {
 	}
 }
 
+func TestServeAll(t *testing.T) {
+	s := newTestServer(t)
+	links := []*Link{
+		{Short: "alpha", Long: "http://alpha/", Owner: "foo@example.com"},
+		{Short: "beta", Long: "http://beta/", Owner: "bar@example.com"},
+	}
+	for _, link := range links {
+		if err := s.db.Save(link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.stats.mu.Lock()
+	s.stats.clicks = ClickStats{"alpha": 42}
+	s.stats.mu.Unlock()
+
+	r := httptest.NewRequest("GET", "/.all", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("serveAll = %d; want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+	for _, s := range []string{"All links", "alpha", "beta", "2 results", "Clicks", "42"} {
+		if !strings.Contains(body, s) {
+			t.Errorf("serveAll body missing %q", s)
+		}
+	}
+}
+
 func TestServeSearch(t *testing.T) {
 	s := newTestServer(t)
 	links := []*Link{
@@ -806,7 +836,7 @@ func TestServeSearch(t *testing.T) {
 			name:            "search by owner with multiple links",
 			owner:           "foo@example.com",
 			wantStatus:      http.StatusOK,
-			wantContains:    []string{"alpha", "beta", "delta", "3 total"},
+			wantContains:    []string{"alpha", "beta", "delta", "3 results"},
 			wantNotContains: []string{"gamma"},
 		},
 		{
@@ -819,7 +849,7 @@ func TestServeSearch(t *testing.T) {
 			name:            "search by owner with single link",
 			owner:           "bar@example.com",
 			wantStatus:      http.StatusOK,
-			wantContains:    []string{"gamma", "1 total"},
+			wantContains:    []string{"gamma", "1 result"},
 			wantNotContains: []string{"alpha", "beta"},
 		},
 	}
@@ -845,6 +875,111 @@ func TestServeSearch(t *testing.T) {
 				if strings.Contains(body, s) {
 					t.Errorf("serveSearch(owner=%q) body unexpectedly contains %q", tt.owner, s)
 				}
+			}
+		})
+	}
+}
+
+func TestParseSearchInput(t *testing.T) {
+	tests := []struct {
+		name            string
+		raw             string
+		wantShortQuery  string
+		wantPath        string
+		wantQuery       url.Values
+		wantIncludeLong bool
+		wantOwner       string
+	}{
+		{name: "empty", raw: ""},
+		{name: "plain", raw: "foo", wantShortQuery: "foo"},
+		{name: "leading whitespace", raw: "   foo", wantShortQuery: "foo"},
+		{
+			name:           "short + path",
+			raw:            "foo/bar",
+			wantShortQuery: "foo",
+			wantPath:       "bar",
+		},
+		{
+			name:           "short + nested path",
+			raw:            "foo/bar/baz",
+			wantShortQuery: "foo",
+			wantPath:       "bar/baz",
+		},
+		{
+			name:           "short + query",
+			raw:            "foo?x=1",
+			wantShortQuery: "foo",
+			wantQuery:      url.Values{"x": []string{"1"}},
+		},
+		{
+			name:           "short + path + query",
+			raw:            "foo/bar/baz?x=1&y=2",
+			wantShortQuery: "foo",
+			wantPath:       "bar/baz",
+			wantQuery:      url.Values{"x": []string{"1"}, "y": []string{"2"}},
+		},
+		{
+			name:            "question-mark prefix toggles includeLong",
+			raw:             "?docs",
+			wantShortQuery:  "docs",
+			wantIncludeLong: true,
+		},
+		{
+			name:            "question-mark prefix with whitespace",
+			raw:             "  ?docs",
+			wantShortQuery:  "docs",
+			wantIncludeLong: true,
+		},
+		{
+			name:            "includeLong + path + query",
+			raw:             "?foo/bar?x=1",
+			wantShortQuery:  "foo",
+			wantPath:        "bar",
+			wantQuery:       url.Values{"x": []string{"1"}},
+			wantIncludeLong: true,
+		},
+		{
+			name:      "owner filter only",
+			raw:       "owner:a@b.com",
+			wantOwner: "a@b.com",
+		},
+		{
+			name:           "owner filter + query",
+			raw:            "owner:a@b.com deploy",
+			wantShortQuery: "deploy",
+			wantOwner:      "a@b.com",
+		},
+		{
+			name:            "owner filter + includeLong",
+			raw:             "owner:a@b.com ?docs",
+			wantShortQuery:  "docs",
+			wantIncludeLong: true,
+			wantOwner:       "a@b.com",
+		},
+		{
+			name:           "unknown filter token is treated as text",
+			raw:            "tag:infra",
+			wantShortQuery: "tag:infra",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseSearchInput(tt.raw)
+			if got.ShortQuery != tt.wantShortQuery {
+				t.Errorf("ShortQuery = %q, want %q", got.ShortQuery, tt.wantShortQuery)
+			}
+			if got.Path != tt.wantPath {
+				t.Errorf("Path = %q, want %q", got.Path, tt.wantPath)
+			}
+			if got.IncludeLong != tt.wantIncludeLong {
+				t.Errorf("IncludeLong = %v, want %v", got.IncludeLong, tt.wantIncludeLong)
+			}
+			if !cmp.Equal(url.Values(got.Query), tt.wantQuery) {
+				t.Errorf("Query = %v, want %v", got.Query, tt.wantQuery)
+			}
+			if got.Filters.Owner != tt.wantOwner {
+				t.Errorf("Filters.Owner = %q, want %q", got.Filters.Owner, tt.wantOwner)
 			}
 		})
 	}
@@ -881,6 +1016,95 @@ func TestSearchResults(t *testing.T) {
 		if got[i].Short != w.Short || got[i].NumClicks != w.NumClicks {
 			t.Errorf("result[%d] = {%q, %d}; want {%q, %d}", i, got[i].Short, got[i].NumClicks, w.Short, w.NumClicks)
 		}
+	}
+}
+
+func TestServeSearchHTMLFallback(t *testing.T) {
+	s := newTestServer(t)
+	s.db.Save(&Link{Short: "hello", Long: "http://hello/"})
+	s.stats.mu.Lock()
+	s.stats.clicks = ClickStats{"hello": 3}
+	s.stats.mu.Unlock()
+
+	r := httptest.NewRequest("GET", "/.search?q=hello", nil)
+	// No Accept header; default to HTML fallback page.
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "hello") {
+		t.Errorf("html body missing 'hello': %s", body)
+	}
+	// The unified table shows a Clicks column with the count.
+	if !strings.Contains(body, "Clicks") {
+		t.Errorf("html body missing Clicks column; body=%s", body)
+	}
+	// Fuzzy matches are highlighted via <mark> in the shared table.
+	if !strings.Contains(body, "<mark>") {
+		t.Errorf("html body missing fuzzy highlight markup; body=%s", body)
+	}
+	// Should be a full HTML page via base.html, which includes the footer
+	// "From the nerds at".
+	if !strings.Contains(body, "From the nerds at") {
+		t.Errorf("html body missing base.html chrome")
+	}
+	// The page-level search form should be present, prefilled with
+	// the user's query, and carry autocomplete=off.
+	if !strings.Contains(body, `id="gl-search-page-input"`) {
+		t.Errorf("html body missing page-level search input")
+	}
+	if !strings.Contains(body, `value="hello"`) {
+		t.Errorf("html body should prefill search input with q value; body=%s", body)
+	}
+	if !strings.Contains(body, `autocomplete="off"`) {
+		t.Errorf("html body should have autocomplete=off on page-level input")
+	}
+}
+
+// TestServeSearchHTMLQueryEscaping verifies the page-level search
+// input's prefill value is HTML-escaped (prevents injection via the
+// ?q= parameter).
+func TestServeSearchHTMLQueryEscaping(t *testing.T) {
+	s := newTestServer(t)
+
+	r := httptest.NewRequest("GET", "/.search?q="+url.QueryEscape(`"><script>alert(1)</script>`), nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	body := w.Body.String()
+	if strings.Contains(body, "<script>alert(1)</script>") {
+		t.Errorf("html body should escape query; got body containing unescaped <script>: %s", body)
+	}
+}
+
+// TestServeSearchHTMLLimit100 verifies that the HTML page can surface
+// up to 100 results (vs the JSON endpoint's cap of 8).
+func TestServeSearchHTMLLimit100(t *testing.T) {
+	s := newTestServer(t)
+	// Populate > 100 links all matching the query "a".
+	for i := 0; i < 150; i++ {
+		short := "aaa" + strings.Repeat("x", i%5) + "-" + fmt.Sprintf("%d", i)
+		if err := s.db.Save(&Link{Short: short, Long: "http://example/"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	r := httptest.NewRequest("GET", "/.search?q=a", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "100 results") {
+		// Fall back to counting table rows if the phrasing changes.
+		rowCount := strings.Count(body, `<tr class="flex hover:bg-gray-100`)
+		if rowCount < 100 {
+			t.Errorf("HTML page should show 100 results, got %d rows (body len %d)", rowCount, len(body))
+		}
+	}
+	// With 150 matches and a cap of 100, the truncation indicator
+	// should be present.
+	if !strings.Contains(body, "Truncated at 100") {
+		t.Errorf("HTML page should indicate the limit was hit; body=%s", body[:min(len(body), 4000)])
 	}
 }
 

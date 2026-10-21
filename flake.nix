@@ -2,7 +2,7 @@
   description = "golink - A private shortlink service for tailnets";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     systems.url = "github:nix-systems/default";
   };
 
@@ -27,11 +27,11 @@
       formatter = eachSystem (pkgs: pkgs.nixpkgs-fmt);
 
       devShells = eachSystem (pkgs: {
-        default = pkgs.mkShell { buildInputs = [ pkgs.go_1_26 ]; };
+        default = pkgs.mkShell { buildInputs = [ pkgs.go_1_27 ]; };
       });
 
       packages = eachSystem (pkgs: {
-        default = pkgs.buildGo126Module {
+        default = pkgs.buildGo127Module {
           pname = "golink";
           version = if (self ? shortRev) then self.shortRev else "dev";
           src = pkgs.nix-gitignore.gitignoreSource [ ] ./.;

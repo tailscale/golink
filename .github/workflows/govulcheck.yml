@@ -4,8 +4,6 @@ on:
     - cron: "0 12 * * *" # 8am EST / 10am PST / 12pm UTC
   workflow_dispatch: # allow manual trigger for testing
   pull_request:
-    paths:
-      - ".github/workflows/govulncheck.yaml"
 jobs:
   govulncheck:
     runs-on: ubuntu-latest

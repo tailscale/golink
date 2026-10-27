@@ -1419,7 +1419,7 @@ func (s *Server) serveExportStats(w http.ResponseWriter, _ *http.Request) {
 // into the database, skipping links that already exist.
 func (s *Server) restoreSnapshot(snapshot []byte) error {
 	bs := bufio.NewScanner(bytes.NewReader(snapshot))
-	var restored int
+	var links []*Link
 	for bs.Scan() {
 		link := new(Link)
 		if err := json.Unmarshal(bs.Bytes(), link); err != nil {
@@ -1428,21 +1428,22 @@ func (s *Server) restoreSnapshot(snapshot []byte) error {
 		if link.Short == "" {
 			continue
 		}
-		_, err := s.db.Load(link.Short)
-		if err == nil {
-			continue // exists
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		if err := s.db.Save(link); err != nil {
-			return err
-		}
-		restored++
+		links = append(links, link)
+	}
+	if err := bs.Err(); err != nil {
+		return err
+	}
+	if len(links) == 0 {
+		return nil
+	}
+	restored, err := s.db.SaveAbsent(links)
+	if err != nil {
+		return err
 	}
 	if restored > 0 && s.verbose {
 		log.Printf("Restored %v links.", restored)
 	}
-	return bs.Err()
+	return nil
 }
 
 func (s *Server) resolveLink(link *url.URL) (*url.URL, error) {

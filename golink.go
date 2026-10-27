@@ -998,24 +998,12 @@ func regexMatch(pattern string, s string) bool {
 // If long does not include templates, the default behavior is to append
 // env.Path to long.
 func expandLink(long string, env expandEnv) (*url.URL, error) {
-	if !strings.Contains(long, "{{") {
-		// default behavior is to append remaining path to long URL
-		if strings.HasSuffix(long, "/") {
-			long += "{{.Path}}"
-		} else {
-			long += "{{with .Path}}/{{.}}{{end}}"
-		}
-	}
-	tmpl, err := texttemplate.New("").Funcs(expandFuncMap).Parse(long)
+	expanded, err := expandTemplate(long, env)
 	if err != nil {
 		return nil, err
 	}
-	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, env); err != nil {
-		return nil, err
-	}
 
-	u, err := url.Parse(buf.String())
+	u, err := url.Parse(expanded)
 	if err != nil {
 		return nil, err
 	}
@@ -1032,6 +1020,31 @@ func expandLink(long string, env expandEnv) (*url.URL, error) {
 	}
 
 	return u, nil
+}
+
+func expandTemplate(long string, env expandEnv) (string, error) {
+	if !strings.Contains(long, "{{") {
+		return appendPath(long, env.Path), nil
+	}
+	tmpl, err := texttemplate.New("").Funcs(expandFuncMap).Parse(long)
+	if err != nil {
+		return "", err
+	}
+	buf := new(bytes.Buffer)
+	if err := tmpl.Execute(buf, env); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+func appendPath(long, path string) string {
+	if path == "" {
+		return long
+	}
+	if !strings.HasSuffix(long, "/") {
+		long += "/"
+	}
+	return long + (&url.URL{Path: path}).EscapedPath()
 }
 
 const peerCapName = "tailscale.com/cap/golink"

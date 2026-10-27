@@ -524,6 +524,37 @@ func TestExpandLink(t *testing.T) {
 			want:      "http://host.com/foo/extra",
 		},
 		{
+			name:      "remainder-escaped-percent",
+			long:      "http://host.com/foo",
+			remainder: "100%",
+			want:      "http://host.com/foo/100%25",
+		},
+		{
+			name:      "remainder-escaped-question-mark",
+			long:      "http://host.com/foo/",
+			remainder: "a?b",
+			want:      "http://host.com/foo/a%3Fb",
+		},
+		{
+			name:      "remainder-escaped-hash",
+			long:      "http://host.com/foo",
+			remainder: "a#b",
+			want:      "http://host.com/foo/a%23b",
+		},
+		{
+			name:      "remainder-keeps-slashes-and-plus",
+			long:      "http://host.com/foo",
+			remainder: "a/b+c",
+			want:      "http://host.com/foo/a/b+c",
+		},
+		{
+			name:      "remainder-with-query-string",
+			long:      "http://host.com/foo",
+			remainder: "100%",
+			query:     "a=b",
+			want:      "http://host.com/foo/100%25?a=b",
+		},
+		{
 			name:      "remainder-long-as-trailing-slash",
 			long:      "http://host.com/foo/",
 			remainder: "extra",

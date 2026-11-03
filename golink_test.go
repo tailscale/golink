@@ -734,6 +734,25 @@ func TestResolveLink(t *testing.T) {
 	}
 }
 
+func TestResolveLinkLoop(t *testing.T) {
+	s := newTestServer(t)
+	s.db.Save(&Link{Short: "a", Long: "http://go/b"})
+	s.db.Save(&Link{Short: "b", Long: "http://go/a"})
+	s.db.Save(&Link{Short: "self", Long: "/self"})
+
+	for _, link := range []string{"a", "go/b", "self"} {
+		t.Run(link, func(t *testing.T) {
+			got, err := s.resolveLink(must.Get(url.Parse(link)))
+			if err == nil {
+				t.Fatalf("ResolveLink(%q) = %v; want an error for a link loop", link, got)
+			}
+			if !strings.Contains(err.Error(), "possible loop") {
+				t.Errorf("ResolveLink(%q) error = %q; want it to mention a possible loop", link, err)
+			}
+		})
+	}
+}
+
 func TestNoHSTSShortDomain(t *testing.T) {
 	s := newTestServer(t)
 	s.db.Save(&Link{Short: "foobar", Long: "http://foobar/"})

@@ -1445,7 +1445,19 @@ func (s *Server) restoreSnapshot(snapshot []byte) error {
 	return bs.Err()
 }
 
+// maxResolveHops is how many alias links resolveLink will follow before
+// giving up, so that links which point at each other return an error
+// instead of recursing until the stack overflows.
+const maxResolveHops = 32
+
 func (s *Server) resolveLink(link *url.URL) (*url.URL, error) {
+	return s.resolveLinkHops(link, 0)
+}
+
+func (s *Server) resolveLinkHops(link *url.URL, hops int) (*url.URL, error) {
+	if hops >= maxResolveHops {
+		return nil, fmt.Errorf("resolving %q: followed %d alias links, possible loop", link.String(), hops)
+	}
 	path := link.Path
 
 	// if link was specified as "go/name", it will parse with no scheme or host.
@@ -1462,7 +1474,7 @@ func (s *Server) resolveLink(link *url.URL) (*url.URL, error) {
 	dst, err := expandLink(l.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
 	if err == nil {
 		if dst.Host == "" || dst.Host == s.hostname {
-			dst, err = s.resolveLink(dst)
+			dst, err = s.resolveLinkHops(dst, hops+1)
 		}
 	}
 	return dst, err

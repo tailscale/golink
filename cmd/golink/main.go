@@ -10,6 +10,12 @@ import (
 	"syscall"
 
 	"github.com/tailscale/golink"
+
+	// Links in tsnet's workload identity federation support, so golink can
+	// join a tailnet with TS_CLIENT_ID plus TS_ID_TOKEN or TS_AUDIENCE
+	// instead of an auth key. Build with ts_omit_identityfederation to leave
+	// it (and the cloud provider SDKs it pulls in) out.
+	_ "tailscale.com/feature/condregister/identityfederation"
 )
 
 func main() {

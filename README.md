@@ -66,6 +66,24 @@ As long as this is on a persistent volume, the auth key only needs to be provide
 [tag]: https://tailscale.com/kb/1068/acl-tags/
 [os.UserConfigDir]: https://pkg.go.dev/os#UserConfigDir
 
+### Workload identity federation
+
+Instead of an auth key, golink can join with [workload identity federation],
+trading an OIDC ID token from your cloud provider or CI for a one-off auth key.
+Set `TS_CLIENT_ID` to the federated identity's client ID, plus one of:
+
+ - `TS_ID_TOKEN`, an ID token you already have
+ - `TS_AUDIENCE`, to have golink fetch a token for that audience itself, on AWS (ECS or EC2), GCP or GitHub Actions
+
+Federated identities can only create tagged nodes, so `--advertise-tags` (or `TS_ADVERTISE_TAGS`) is required:
+
+    TS_CLIENT_ID="<client-id>" TS_AUDIENCE="<audience>" \
+      go run ./cmd/golink -sqlitedb golink.db --advertise-tags=tag:golink
+
+As with an auth key, these are only used on first run.
+
+[workload identity federation]: https://tailscale.com/kb/1581/workload-identity-federation
+
 ## Registering as a Tailscale Service
 
 By default, golink registers as a regular tailnet node. However, you can register it as a [Tailscale Service],

@@ -1166,3 +1166,27 @@ func TestServeHTTPReturnsServeError(t *testing.T) {
 		t.Fatal("serveHTTP did not return after the listener closed")
 	}
 }
+
+func TestServeDetailDeleteDBError(t *testing.T) {
+	s := newTestServer(t)
+	s.db.Save(&Link{Short: "foo", Owner: "foo@example.com"})
+	s.db.db.Close() // make every query fail with an error other than fs.ErrNotExist
+
+	for _, tt := range []struct {
+		name    string
+		handler http.HandlerFunc
+		path    string
+	}{
+		{"detail", s.serveDetail, "/.detail/foo"},
+		{"delete", s.serveDelete, "/.delete/foo"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest("POST", tt.path, nil)
+			w := httptest.NewRecorder()
+			tt.handler(w, r)
+			if w.Code != http.StatusInternalServerError {
+				t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+			}
+		})
+	}
+}

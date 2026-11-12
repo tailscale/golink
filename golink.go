@@ -1445,27 +1445,44 @@ func (s *Server) restoreSnapshot(snapshot []byte) error {
 	return bs.Err()
 }
 
+// resolveLink follows a go link, and any go link aliases it points at,
+// to its final destination. If the aliases loop, it returns an error
+// naming the cycle.
 func (s *Server) resolveLink(link *url.URL) (*url.URL, error) {
-	path := link.Path
+	seen := make(map[string]bool)
+	var chain []string
+	for {
+		path := link.Path
 
-	// if link was specified as "go/name", it will parse with no scheme or host.
-	// Trim "go" prefix from beginning of path.
-	if link.Host == "" {
-		path = strings.TrimPrefix(path, s.hostname)
-	}
-
-	short, remainder, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
-	l, err := s.db.Load(short)
-	if err != nil {
-		return nil, err
-	}
-	dst, err := expandLink(l.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
-	if err == nil {
-		if dst.Host == "" || dst.Host == s.hostname {
-			dst, err = s.resolveLink(dst)
+		// if link was specified as "go/name", it will parse with no scheme or host.
+		// Trim "go" prefix from beginning of path.
+		if link.Host == "" {
+			path = strings.TrimPrefix(path, s.hostname)
 		}
+
+		short, remainder, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
+		chain = append(chain, short)
+		// Key on linkID so that differently cased or dashed spellings of
+		// the same link are treated as the same hop, matching db.Load.
+		id := linkID(short)
+		if seen[id] {
+			return nil, fmt.Errorf("resolving %q: alias loop %s", chain[0], strings.Join(chain, " -> "))
+		}
+		seen[id] = true
+
+		l, err := s.db.Load(short)
+		if err != nil {
+			return nil, fmt.Errorf("resolving %q: %w", short, err)
+		}
+		dst, err := expandLink(l.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
+		if err != nil {
+			return nil, err
+		}
+		if dst.Host != "" && dst.Host != s.hostname {
+			return dst, nil // not a go link alias; done
+		}
+		link = dst
 	}
-	return dst, err
 }
 
 func (s *Server) isRequestAuthorized(r *http.Request, u user, short string) bool {

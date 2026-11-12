@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -729,6 +730,51 @@ func TestResolveLink(t *testing.T) {
 			}
 			if got.String() != tt.want {
 				t.Errorf("ResolveLink(%q) = %q; want %q", tt.link, got.String(), tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveLinkLoop(t *testing.T) {
+	s := newTestServer(t)
+	s.db.Save(&Link{Short: "a", Long: "http://go/b"})
+	s.db.Save(&Link{Short: "b", Long: "http://go/a"})
+	s.db.Save(&Link{Short: "self", Long: "/self"})
+	// different spellings of the same link should still be caught as a loop
+	s.db.Save(&Link{Short: "up", Long: "/Down"})
+	s.db.Save(&Link{Short: "down", Long: "/u-p/x"})
+
+	tests := []struct {
+		link    string
+		wantErr string
+	}{
+		{"a", `resolving "a": alias loop a -> b -> a`},
+		{"go/b", `resolving "b": alias loop b -> a -> b`},
+		{"self", `resolving "self": alias loop self -> self`},
+		{"up", `resolving "up": alias loop up -> Down -> u-p`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.link, func(t *testing.T) {
+			got, err := s.resolveLink(must.Get(url.Parse(tt.link)))
+			if err == nil {
+				t.Fatalf("resolveLink(%q) = %v; want an error for a link loop", tt.link, got)
+			}
+			if err.Error() != tt.wantErr {
+				t.Errorf("resolveLink(%q) error = %q; want %q", tt.link, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestResolveLinkMissing(t *testing.T) {
+	s := newTestServer(t)
+	s.db.Save(&Link{Short: "dangling", Long: "/missing"})
+
+	for _, link := range []string{"missing", "dangling"} {
+		t.Run(link, func(t *testing.T) {
+			_, err := s.resolveLink(must.Get(url.Parse(link)))
+			if !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("resolveLink(%q) error = %v; want fs.ErrNotExist", link, err)
 			}
 		})
 	}

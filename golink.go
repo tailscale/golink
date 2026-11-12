@@ -666,20 +666,14 @@ func RedirectHandler(hostname string) http.Handler {
 }
 
 // HSTS wraps the provided handler and sets Strict-Transport-Security header on
-// responses. It inspects the Host header to ensure we do not specify HSTS
+// responses. It inspects the request host to ensure we do not specify HSTS
 // response on non fully qualified domain name origins.
 func HSTS(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, found := r.Header["Host"]
-		if found {
-			host := host[0]
-			fqdn, err := dnsname.ToFQDN(host)
-			if err == nil {
-				segCount := fqdn.NumLabels()
-				if segCount > 1 {
-					w.Header().Set("Strict-Transport-Security", "max-age=31536000")
-				}
-			}
+		// net/http moves the Host header into r.Host and removes it from
+		// r.Header for incoming requests, so read r.Host.
+		if fqdn, err := dnsname.ToFQDN(r.Host); err == nil && fqdn.NumLabels() > 1 {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		h.ServeHTTP(w, r)
 	})

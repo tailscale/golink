@@ -755,7 +755,9 @@ func TestNoHSTSShortDomain(t *testing.T) {
 		name := "HSTS: " + tt.host
 		t.Run(name, func(t *testing.T) {
 			r := httptest.NewRequest("GET", "/foobar", nil)
-			r.Header.Add("Host", tt.host)
+			// Set r.Host, as net/http does for incoming requests; it does
+			// not keep Host in r.Header.
+			r.Host = tt.host
 
 			w := httptest.NewRecorder()
 			HSTS(s.Handler()).ServeHTTP(w, r)

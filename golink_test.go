@@ -130,6 +130,11 @@ func TestServeGo(t *testing.T) {
 			wantLink:   "https://www.google.com/search/foo%25?q=golink",
 		},
 		{
+			name:       "escaped slash is part of the short name",
+			link:       "/who%2Fextra",
+			wantStatus: http.StatusNotFound,
+		},
+		{
 			name:       "template link with path",
 			link:       "/tmpl/p",
 			wantStatus: http.StatusFound,
@@ -638,6 +643,18 @@ func TestExpandLink(t *testing.T) {
 			long:      "http://host.com/foo%2f/bar",
 			remainder: "100%",
 			want:      "http://host.com/foo%2f/bar/100%25",
+		},
+		{
+			name:      "remainder-after-escaped-trailing-slash",
+			long:      "http://host.com/foo%2F",
+			remainder: "bar",
+			want:      "http://host.com/foo%2F/bar",
+		},
+		{
+			name:      "remainder-on-opaque-long",
+			long:      "mailto:a@b.com",
+			remainder: "100%",
+			want:      "mailto:a@b.com/100%25",
 		},
 		{
 			name:      "template-path-with-percent",

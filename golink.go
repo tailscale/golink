@@ -1044,11 +1044,16 @@ func appendPath(u *url.URL, remainder string) {
 	}
 
 	sep := "/"
-	if strings.HasSuffix(u.Path, "/") {
+	if strings.HasSuffix(u.EscapedPath(), "/") || strings.HasSuffix(u.Opaque, "/") {
 		sep = ""
 	}
+	escaped := (&url.URL{Path: path}).EscapedPath()
+	if u.Opaque != "" {
+		u.Opaque += sep + escaped
+		return
+	}
 	if u.RawPath != "" {
-		u.RawPath += sep + (&url.URL{Path: path}).EscapedPath()
+		u.RawPath += sep + escaped
 	}
 	u.Path += sep + path
 }

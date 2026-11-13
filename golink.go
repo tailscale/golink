@@ -804,7 +804,7 @@ func (s *Server) serveGo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	short, remainder, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	short, remainder := splitLinkPath(r.URL.EscapedPath())
 
 	// redirect {name}+ links to /.detail/{name}
 	if strings.HasSuffix(short, "+") {
@@ -855,6 +855,10 @@ func (s *Server) serveGo(w http.ResponseWriter, r *http.Request) {
 		log.Printf("expanding %q: %v", link.Long, err)
 		if errors.Is(err, errNoUser) {
 			http.Error(w, "link requires a valid user", http.StatusUnauthorized)
+			return
+		}
+		if _, ok := errors.AsType[*url.Error](err); ok {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -992,20 +996,28 @@ func regexMatch(pattern string, s string) bool {
 	return b
 }
 
-// expandLink returns the expanded long URL to redirect to, executing any
-// embedded templates with env data.
-//
-// If long does not include templates, the default behavior is to append
-// env.Path to long.
+// expandLink returns the URL to redirect to. Templates in long run with env; otherwise
+// env.Path is escaped onto the long URL's path, and a "#" in it starts the fragment.
 func expandLink(long string, env expandEnv) (*url.URL, error) {
-	expanded, err := expandTemplate(long, env)
+	templated := strings.Contains(long, "{{")
+	if templated {
+		tmpl, err := texttemplate.New("").Funcs(expandFuncMap).Parse(long)
+		if err != nil {
+			return nil, err
+		}
+		buf := new(bytes.Buffer)
+		if err := tmpl.Execute(buf, env); err != nil {
+			return nil, err
+		}
+		long = buf.String()
+	}
+
+	u, err := url.Parse(long)
 	if err != nil {
 		return nil, err
 	}
-
-	u, err := url.Parse(expanded)
-	if err != nil {
-		return nil, err
+	if !templated {
+		appendPath(u, env.Path)
 	}
 
 	// add query parameters from original request
@@ -1022,29 +1034,30 @@ func expandLink(long string, env expandEnv) (*url.URL, error) {
 	return u, nil
 }
 
-func expandTemplate(long string, env expandEnv) (string, error) {
-	if !strings.Contains(long, "{{") {
-		return appendPath(long, env.Path), nil
+func appendPath(u *url.URL, remainder string) {
+	path, fragment, _ := strings.Cut(remainder, "#")
+	if fragment != "" {
+		u.Fragment, u.RawFragment = fragment, ""
 	}
-	tmpl, err := texttemplate.New("").Funcs(expandFuncMap).Parse(long)
-	if err != nil {
-		return "", err
+	if path == "" {
+		return
 	}
-	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, env); err != nil {
-		return "", err
+
+	sep := "/"
+	if strings.HasSuffix(u.Path, "/") {
+		sep = ""
 	}
-	return buf.String(), nil
+	if u.RawPath != "" {
+		u.RawPath += sep + (&url.URL{Path: path}).EscapedPath()
+	}
+	u.Path += sep + path
 }
 
-func appendPath(long, path string) string {
-	if path == "" {
-		return long
-	}
-	if !strings.HasSuffix(long, "/") {
-		long += "/"
-	}
-	return long + (&url.URL{Path: path}).EscapedPath()
+func splitLinkPath(escapedPath string) (short, remainder string) {
+	short, remainder, _ = strings.Cut(strings.TrimPrefix(escapedPath, "/"), "/")
+	short, _ = url.PathUnescape(short)
+	remainder, _ = url.PathUnescape(remainder)
+	return short, remainder
 }
 
 const peerCapName = "tailscale.com/cap/golink"
@@ -1459,7 +1472,7 @@ func (s *Server) restoreSnapshot(snapshot []byte) error {
 }
 
 func (s *Server) resolveLink(link *url.URL) (*url.URL, error) {
-	path := link.Path
+	path := link.EscapedPath()
 
 	// if link was specified as "go/name", it will parse with no scheme or host.
 	// Trim "go" prefix from beginning of path.
@@ -1467,7 +1480,7 @@ func (s *Server) resolveLink(link *url.URL) (*url.URL, error) {
 		path = strings.TrimPrefix(path, s.hostname)
 	}
 
-	short, remainder, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
+	short, remainder := splitLinkPath(path)
 	l, err := s.db.Load(short)
 	if err != nil {
 		return nil, err

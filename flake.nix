@@ -2,7 +2,7 @@
   description = "golink - A private shortlink service for tailnets";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     systems.url = "github:nix-systems/default";
   };
 
@@ -13,9 +13,6 @@
     ,
     }:
     let
-      goVersion = nixpkgs.lib.fileContents ./go.toolchain.version;
-      toolChainRev = nixpkgs.lib.fileContents ./go.toolchain.rev;
-      gitHash = nixpkgs.lib.fileContents ./go.toolchain.rev.sri;
       eachSystem = f:
         nixpkgs.lib.genAttrs (import systems) (system:
           f (import nixpkgs {

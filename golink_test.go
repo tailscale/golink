@@ -52,6 +52,8 @@ func TestServeGo(t *testing.T) {
 	s.db.Save(&Link{Short: "who", Long: "http://who/"})
 	s.db.Save(&Link{Short: "me", Long: "/who/{{.User}}"})
 	s.db.Save(&Link{Short: "invalid-var", Long: "/who/{{.Invalid}}"})
+	s.db.Save(&Link{Short: "tmpl", Long: "http://who/{{.Path}}"})
+	s.db.Save(&Link{Short: "search", Long: "https://www.google.com/search?q=golink"})
 
 	tests := []struct {
 		name        string
@@ -96,6 +98,52 @@ func TestServeGo(t *testing.T) {
 			link:       "/who/http://host",
 			wantStatus: http.StatusFound,
 			wantLink:   "http://who/http://host",
+		},
+		{
+			name:       "simple link with escaped percent",
+			link:       "/who/100%25",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/100%25",
+		},
+		{
+			name:       "simple link with escaped question mark",
+			link:       "/who/a%3Fb",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/a%3Fb",
+		},
+		{
+			name:       "simple link with escaped hash",
+			link:       "/who/a%23b",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/a#b",
+		},
+		{
+			name:       "simple link with unicode",
+			link:       "/who/caf%C3%A9",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/caf%C3%A9",
+		},
+		{
+			name:       "long link with query and escaped percent",
+			link:       "/search/foo%25",
+			wantStatus: http.StatusFound,
+			wantLink:   "https://www.google.com/search/foo%25?q=golink",
+		},
+		{
+			name:       "escaped slash is part of the short name",
+			link:       "/who%2Fextra",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "template link with path",
+			link:       "/tmpl/p",
+			wantStatus: http.StatusFound,
+			wantLink:   "http://who/p",
+		},
+		{
+			name:       "template link with escaped percent",
+			link:       "/tmpl/100%25",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "simple link, trailing period",
@@ -524,6 +572,116 @@ func TestExpandLink(t *testing.T) {
 			want:      "http://host.com/foo/extra",
 		},
 		{
+			name:      "remainder-escaped-percent",
+			long:      "http://host.com/foo",
+			remainder: "100%",
+			want:      "http://host.com/foo/100%25",
+		},
+		{
+			name:      "remainder-escaped-question-mark",
+			long:      "http://host.com/foo/",
+			remainder: "a?b",
+			want:      "http://host.com/foo/a%3Fb",
+		},
+		{
+			name:      "remainder-hash-starts-fragment",
+			long:      "http://host.com/foo",
+			remainder: "a#b",
+			want:      "http://host.com/foo/a#b",
+		},
+		{
+			name:      "remainder-only-fragment",
+			long:      "http://host.com/foo",
+			remainder: "#b",
+			want:      "http://host.com/foo#b",
+		},
+		{
+			name:      "remainder-trailing-hash",
+			long:      "http://host.com/foo",
+			remainder: "a#",
+			want:      "http://host.com/foo/a",
+		},
+		{
+			name:      "remainder-fragment-replaces-long-fragment",
+			long:      "http://host.com/doc#sec",
+			remainder: "a#b",
+			want:      "http://host.com/doc/a#b",
+		},
+		{
+			name:      "remainder-keeps-long-fragment",
+			long:      "http://host.com/doc#sec",
+			remainder: "a",
+			want:      "http://host.com/doc/a#sec",
+		},
+		{
+			name:      "remainder-before-long-query",
+			long:      "https://www.google.com/search?q=golink",
+			remainder: "foo%",
+			want:      "https://www.google.com/search/foo%25?q=golink",
+		},
+		{
+			name:      "remainder-before-long-query-and-fragment",
+			long:      "https://host.com/search?q=golink#top",
+			remainder: "foo",
+			query:     "a=b",
+			want:      "https://host.com/search/foo?a=b&q=golink#top",
+		},
+		{
+			name:      "remainder-escaped-space-and-unicode",
+			long:      "http://host.com/foo",
+			remainder: "a b/café",
+			want:      "http://host.com/foo/a%20b/caf%C3%A9",
+		},
+		{
+			name:      "remainder-trailing-slash",
+			long:      "http://host.com/foo",
+			remainder: "a/",
+			want:      "http://host.com/foo/a/",
+		},
+		{
+			name:      "dont-mangle-escapes-and-escaped-remainder",
+			long:      "http://host.com/foo%2f/bar",
+			remainder: "100%",
+			want:      "http://host.com/foo%2f/bar/100%25",
+		},
+		{
+			name:      "remainder-after-escaped-trailing-slash",
+			long:      "http://host.com/foo%2F",
+			remainder: "bar",
+			want:      "http://host.com/foo%2F/bar",
+		},
+		{
+			name:      "remainder-on-opaque-long",
+			long:      "mailto:a@b.com",
+			remainder: "100%",
+			want:      "mailto:a@b.com/100%25",
+		},
+		{
+			name:      "template-path-with-percent",
+			long:      "http://host.com/{{.Path}}",
+			remainder: "100%",
+			wantErr:   true,
+		},
+		{
+			name:      "template-pathescape-with-percent",
+			long:      "http://host.com/{{PathEscape .Path}}",
+			remainder: "100%",
+			want:      "http://host.com/100%25",
+		},
+		{
+			name:      "remainder-keeps-slashes-and-plus",
+			long:      "http://host.com/foo",
+			remainder: "a/b+c",
+			want:      "http://host.com/foo/a/b+c",
+		},
+		{
+			name:      "remainder-with-query-string",
+			long:      "http://host.com/foo",
+			remainder: "100%",
+			query:     "a=b",
+			want:      "http://host.com/foo/100%25?a=b",
+		},
+		{
 			name:      "remainder-long-as-trailing-slash",
 			long:      "http://host.com/foo/",
 			remainder: "extra",
@@ -707,6 +865,14 @@ func TestResolveLink(t *testing.T) {
 		{
 			link: "cs/term",
 			want: "http://codesearch/search?q=term",
+		},
+		{
+			link: "meet/100%25",
+			want: "https://meet.google.com/lookup/100%25",
+		},
+		{
+			link: "go/meet/a%23b",
+			want: "https://meet.google.com/lookup/a#b",
 		},
 		{
 			// aliased go links with hostname

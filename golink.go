@@ -651,6 +651,20 @@ func (s *Server) deleteLinkStats(link *Link) {
 	s.db.DeleteStats(link.Short)
 }
 
+// renameLinkStats moves the in-memory link stats from one spelling of a short
+// name to another, for when an edit changes the link's canonical short name
+// (for example, "Foo" to "foo").
+func (s *Server) renameLinkStats(from, to string) {
+	s.stats.mu.Lock()
+	defer s.stats.mu.Unlock()
+	for _, m := range []ClickStats{s.stats.clicks, s.stats.dirty} {
+		if n, ok := m[from]; ok {
+			delete(m, from)
+			m[to] += n
+		}
+	}
+}
+
 // RedirectHandler returns the http.Handler for serving all plaintext HTTP
 // requests. It redirects all requests to the HTTPS version of the same URL.
 func RedirectHandler(hostname string) http.Handler {
@@ -1309,6 +1323,7 @@ func (s *Server) serveSave(w http.ResponseWriter, r *http.Request) {
 		}
 		newLink = true
 	}
+	oldShort := link.Short
 	link.Short = short
 	link.Long = long
 	link.LastEdit = now
@@ -1316,6 +1331,9 @@ func (s *Server) serveSave(w http.ResponseWriter, r *http.Request) {
 	if err := s.db.Save(link); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if !newLink && oldShort != short {
+		s.renameLinkStats(oldShort, short)
 	}
 
 	if acceptHTML(r) {

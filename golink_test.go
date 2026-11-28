@@ -320,6 +320,41 @@ func TestServeSave(t *testing.T) {
 	}
 }
 
+func TestServeSaveRenameKeepsStats(t *testing.T) {
+	s := newTestServer(t)
+	s.db.Save(&Link{Short: "Foo", Long: "http://foo/", Owner: "foo@example.com"})
+
+	for range 2 {
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/foo", nil))
+		if w.Code != http.StatusFound {
+			t.Fatalf("GET /foo = %d; want %d", w.Code, http.StatusFound)
+		}
+	}
+
+	// Changing only the case of the short name updates the link's canonical
+	// short name, which is the key the in-memory stats are stored under.
+	r := httptest.NewRequest("POST", "/", strings.NewReader(url.Values{
+		"short": {"foo"},
+		"long":  {"http://foo/"},
+		"xsrf":  {xsrftoken.Generate(s.xsrfKey, "foo@example.com", "Foo")},
+	}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	s.serveSave(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("serveSave = %d; want %d", w.Code, http.StatusOK)
+	}
+
+	want := ClickStats{"foo": 2}
+	if diff := cmp.Diff(want, s.stats.clicks); diff != "" {
+		t.Errorf("clicks mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(want, s.stats.dirty); diff != "" {
+		t.Errorf("dirty mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestServeDelete(t *testing.T) {
 	s := newTestServer(t)
 	s.db.Save(&Link{Short: "a", Owner: "a@example.com"})
